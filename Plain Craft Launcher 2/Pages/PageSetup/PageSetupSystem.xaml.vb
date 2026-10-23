@@ -186,11 +186,14 @@ Public Class PageSetupSystem
                 Dim Row = Grid.GetRow(Child)
                 If Row >= 8 Then Grid.SetRow(Child, Row + 1)
             Next
+            '★ Only reflect the actual channel of the running program: all builds share the
+            '  same registry, so reading BetaEnabled would make the Snapshot build wrongly
+            '  show the beta checkbox as checked after it was enabled in the Release build
             BetaCheck = New MyCheckBox With {
                 .Text = "内测版体验",
                 .Height = 22,
                 .Margin = New Thickness(0, 5, 0, 4),
-                .Checked = (BuildType = BuildTypes.Beta OrElse Settings.Get(Of Boolean)("BetaEnabled"))}
+                .Checked = (BuildType = BuildTypes.Beta)}
             AddHandler BetaCheck.Change, AddressOf BetaCheck_Change
             Host.Children.Add(BetaCheck)
             Grid.SetRow(BetaCheck, 8)
@@ -247,8 +250,9 @@ Public Class PageSetupSystem
 
     ''' <summary>勾选：输入内测码 → 联网校验 → 下载内测版并重启。</summary>
     Private Sub EnterBeta()
-        '记录当前的通道状态：下载被取消或失败时要原样恢复
-        Dim PrevEnabled As Boolean = Settings.Get(Of Boolean)("BetaEnabled")
+        'Record the current channel state to restore if the download is cancelled/failed.
+        '★ Use the actual channel, not the BetaEnabled setting (it is shared across builds and may hold stale values)
+        Dim PrevEnabled As Boolean = IsBetaChannel
         Dim PrevCode As String = Settings.Get(Of String)("BetaCode")
         Dim Code As String = MyMsgBoxInput("内测版体验",
             "内测码由服务端管理员按设备码发放。" & vbCrLf &
