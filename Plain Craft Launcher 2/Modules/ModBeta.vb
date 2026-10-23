@@ -1,4 +1,4 @@
-Imports Newtonsoft.Json.Linq
+﻿Imports Newtonsoft.Json.Linq
 
 ''' <summary>
 ''' 内测版（Beta 通道）：内测码校验、通道切换、启动前联网校验。
@@ -125,7 +125,6 @@ Module ModBeta
     Friend Function CheckBetaUsable() As BetaGate
         If Not ServerEnabled Then Return BetaGate.Ok 'Server not configured: skip the online check
         Dim Msg As String
-        Dim IsNetwork As Boolean = False
         Hint("正在校验内测资格……")
         Try
             ReadServerNotice(8000) '先确认服务端可达
@@ -136,21 +135,67 @@ Module ModBeta
             End If
             Msg = "内测资格已失效：" & If(Result.Message = "", "内测码无效或已被停用", Result.Message)
         Catch ex As Exception
-            IsNetwork = IsNetworkIssue(ex)
             Msg = "内测版必须联网并连接服务端才能使用。" & vbCrLf &
                   "当前无法连接服务端：" & ServerAddress & vbCrLf &
                   "请检查网络后重新启动；也可以先切回正式版。"
             Logger.Warn(ex, "内测版联网校验失败")
         End Try
-        Dim Choice As Integer = 2
-        RunInUiWait(
-            Sub()
-                Choice = MyMsgBox(Msg & vbCrLf & vbCrLf & "是否切回正式版？" & vbCrLf &
-                                  "（切回后内测码会从本机移除，需要重新输入才能再进内测版）",
-                                  "内测版无法使用", "切回正式版", "退出", IsWarn:=True)
-            End Sub)
-        If Choice = 1 Then Return BetaGate.SwitchRelease
-        Return BetaGate.Exit
+        '处理方式：切回正式版 / 重新输入内测码（验证通过即可继续使用内测版）/ 退出
+        Do
+            Dim Choice As Integer = 3
+            RunInUiWait(
+                Sub()
+                    Choice = MyMsgBox(Msg & vbCrLf & vbCrLf &
+                                      "可以切回正式版，也可以输入新的内测码（校验通过即可继续使用内测版）。" & vbCrLf &
+                                      "（切回后内测码会从本机移除，需要重新输入才能再进内测版）",
+                                      "内测版无法使用", "切回正式版", "输入内测码", "退出", IsWarn:=True)
+                End Sub)
+            Select Case Choice
+                Case 1
+                    '切回正式版
+                    Return BetaGate.SwitchRelease
+                Case 2
+                    '输入新的内测码：校验通过就继续用内测版，失败则回退正式版
+                    Dim NewCode As String = Nothing
+                    RunInUiWait(
+                        Sub()
+                            NewCode = MyMsgBoxInput("输入内测码",
+                                "内测码由服务端管理员按设备码发放。" & vbCrLf &
+                                "你的设备码：" & DeviceCode & vbCrLf & vbCrLf &
+                                "校验通过后会继续使用内测版。", "", HintText:="内测码", Button1:="校验")
+                        End Sub)
+                    If NewCode Is Nothing OrElse NewCode.Trim = "" Then
+                        '取消输入：回到选择界面
+                        Continue Do
+                    End If
+                    Dim Verified As Boolean = False
+                    Dim VerifyErr As String = ""
+                    Try
+                        Dim R2 = VerifyBetaCode(NewCode.Trim())
+                        If R2.Ok Then
+                            Verified = True
+                        Else
+                            VerifyErr = If(R2.Message = "", "内测码无效或已被停用", R2.Message)
+                        End If
+                    Catch ex As Exception
+                        VerifyErr = If(IsNetworkIssue(ex), "连不上服务器，无法校验新内测码。", ex.Message)
+                    End Try
+                    If Verified Then
+                        Settings.Set("BetaCode", NewCode.Trim())
+                        Settings.Set("BetaEnabled", True)
+                        Logger.Info("内测版：重新输入内测码并校验通过，继续使用内测版")
+                        Hint("内测码校验通过，继续使用内测版", HintType.Green)
+                        Return BetaGate.Ok
+                    End If
+                    '新内测码无效：按约定回退正式版
+                    Msg = "新内测码校验失败：" & VerifyErr
+                    RunInUiWait(Sub() MyMsgBox(Msg & vbCrLf & "启动器将切回正式版。", "内测版", IsWarn:=True))
+                    Return BetaGate.SwitchRelease
+                Case Else
+                    '退出
+                    Return BetaGate.Exit
+            End Select
+        Loop
     End Function
 
     ''' <summary>清除本机内测状态（切回正式版 / 快照版前调用）。</summary>
