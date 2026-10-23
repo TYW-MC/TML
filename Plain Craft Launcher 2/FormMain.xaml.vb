@@ -211,9 +211,12 @@ Public Class FormMain
                     Select Case CheckBetaUsable()
                         Case BetaGate.SwitchRelease
                             ClearBetaState()
-                            '开了快照版测试的，就退回快照版而不是正式版
+                            '★ 内测资格被停用 / 删除时，一律回退正式版（即使勾了「快照版测试」也不再回退到快照版）
+                            '  同时关掉「快照版测试」开关：正式版 exe 只要这个开关还开着就会被当成快照通道，
+                            '  下次检查更新又会自己跑回快照版，等于没回退
+                            Settings.Set("SystemSnapshotTest", False)
                             '切回失败（下载取消 / 断网）时不再继续运行：内测版没有有效内测码，只能退出
-                            If Not SwitchChannel(If(Settings.Get(Of Boolean)("SystemSnapshotTest"), "Snapshot", "Release")) Then
+                            If Not SwitchChannel("Release") Then
                                 RunInUi(Sub()
                                             MyMsgBox("切回正式版失败（程序未下载完成），内测版无法继续使用，启动器将退出。" & vbCrLf &
                                                      "请检查网络后重新打开启动器。", "内测版", IsWarn:=True)
