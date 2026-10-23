@@ -48,7 +48,16 @@ Public Class PageOtherTest
         End Try
     End Sub
 
-    Public Declare Function EmptyWorkingSet Lib "kernel32" (hProcess As IntPtr) As Boolean
+    '★ EmptyWorkingSet 的导出名在 psapi.dll 里；kernel32.dll 里是改名后的 K32EmptyWorkingSet。
+    '  按原名去 kernel32 找会抛 EntryPointNotFoundException（早期版本就是这么写错的）。
+    <Runtime.InteropServices.DllImport("psapi.dll", SetLastError:=True)>
+    Private Shared Function EmptyWorkingSet(hProcess As IntPtr) As Boolean
+    End Function
+
+    '备用方案：kernel32 里的 SetProcessWorkingSetSize，最小/最大值都传 -1 时等同于清空工作集
+    <Runtime.InteropServices.DllImport("kernel32.dll", SetLastError:=True)>
+    Private Shared Function SetProcessWorkingSetSize(hProcess As IntPtr, minWorkingSet As IntPtr, maxWorkingSet As IntPtr) As Boolean
+    End Function
 
     Public Shared Sub MemoryOptimize(ShowHint As Boolean)
         Try
@@ -56,7 +65,20 @@ Public Class PageOtherTest
             GC.WaitForPendingFinalizers()
             GC.Collect()
             Using P = Process.GetCurrentProcess()
-                EmptyWorkingSet(P.Handle)
+                Dim Ok As Boolean
+                Try
+                    Ok = EmptyWorkingSet(P.Handle)
+                Catch ex As EntryPointNotFoundException
+                    Ok = False
+                End Try
+                If Not Ok Then
+                    'psapi 找不到该导出（极精简的运行环境）时退回 SetProcessWorkingSetSize，仍失败就静默跳过
+                    Try
+                        SetProcessWorkingSetSize(P.Handle, New IntPtr(-1), New IntPtr(-1))
+                    Catch ex As Exception
+                        Logger.Error(ex, "内存优化（备用方案）失败")
+                    End Try
+                End If
             End Using
             If ShowHint Then Hint("内存优化完成！", HintType.Green)
         Catch ex As Exception
