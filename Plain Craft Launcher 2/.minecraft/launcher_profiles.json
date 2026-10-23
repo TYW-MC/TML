@@ -1,0 +1,13 @@
+{
+    "profiles":  {
+        "TYW Launcher": {
+            "icon": "Grass",
+            "name": "TYW Launcher",
+            "lastVersionId": "latest-release",
+            "type": "latest-release",
+            "lastUsed": "2026-10-22T19:16:54.0000Z"
+        }
+    },
+    "selectedProfile": "TYW Launcher",
+    "clientToken": "23323323323323323323323323323333"
+}
