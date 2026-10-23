@@ -1,4 +1,4 @@
-''' <summary>
+﻿''' <summary>
 ''' 内置更新日志：每个版本一段，互不覆盖，与服端公告完全分开。
 ''' 发布新版本时，把 VersionCode 加 1，并在下面的 Select Case 里加一条对应版本码的记录即可。
 ''' </summary>
@@ -127,9 +127,67 @@ Module ModUpdateLog
                     "修复设备封禁可能未生效的问题",
                     "内测版不提供自动更新，「自动更新」始终显示为关闭",
                     "内测版必须联网并连接服务端才能使用"})
+            Case 137 '1.1.10 正式版
+                Return ("1.1.10", New String() {
+                    "修复「内存优化」报错：找不到 EmptyWorkingSet 入口点（改用 psapi.dll 调用）",
+                    "“已更新至”弹窗改为读取内置更新日志，不再列出上游 PCL 2.x 的老日志",
+                    "跨多个版本更新时按版本标注每条的出处",
+                    "“完整更新日志”改为显示本通道历次更新内容"})
+            Case 138 '1.1.10 快照版
+                Return ("1.1.10 快照版", New String() {
+                    "修复「内存优化」报错：找不到 EmptyWorkingSet 入口点（改用 psapi.dll 调用）",
+                    "“已更新至”弹窗改为读取内置更新日志，不再列出上游 PCL 2.x 的老日志"})
+            Case 139 '1.1.10 内测版
+                Return ("1.1.10 内测版", New String() {
+                    "修复「内存优化」报错：找不到 EmptyWorkingSet 入口点（改用 psapi.dll 调用）",
+                    "“已更新至”弹窗改为读取内置更新日志，不再列出上游 PCL 2.x 的老日志",
+                    "内测版不提供自动更新，「自动更新」始终显示为关闭"})
             Case Else
                 Return (VersionBaseName, New String() {})
         End Select
+    End Function
+
+    ''' <summary>从日志标题判断它属于哪个通道（标题后缀带「快照版」「内测版」）。</summary>
+    ''' <remarks>不能用版本码取余来判断：早期 1.1.1/1.1.2 的版本码排布和现在不一致，会串通道。</remarks>
+    Private Function LogChannelKey(Version As String) As String
+        If Version.Contains("内测版") Then Return "Beta"
+        If Version.Contains("快照版") Then Return "Snapshot"
+        Return "Release"
+    End Function
+
+    ''' <summary>当前程序所在通道。</summary>
+    Private Function CurrentChannelKey() As String
+        Select Case BuildType
+            Case BuildTypes.Beta : Return "Beta"
+            Case BuildTypes.Snapshot : Return "Snapshot"
+            Case Else : Return "Release"
+        End Select
+    End Function
+
+    ''' <summary>取出同一通道下 (FromCode, ToCode] 之间所有已登记的更新日志，按版本码从旧到新。</summary>
+    Friend Function GetLogsBetween(FromCode As Integer, ToCode As Integer) As List(Of (Version As String, Items As String()))
+        Dim Result As New List(Of (Version As String, Items As String()))
+        Dim Channel As String = CurrentChannelKey()
+        For Code = Math.Max(FromCode + 1, 0) To ToCode
+            Dim Info = GetUpdateLog(Code)
+            If Info.Items Is Nothing OrElse Info.Items.Length = 0 Then Continue For
+            If LogChannelKey(Info.Version) <> Channel Then Continue For
+            Result.Add(Info)
+        Next
+        Return Result
+    End Function
+
+    ''' <summary>本通道所有已登记的更新日志，按版本码从新到旧（给「完整更新日志」用）。</summary>
+    Friend Function GetAllLogs() As List(Of (Version As String, Items As String()))
+        Dim Result As New List(Of (Version As String, Items As String()))
+        Dim Channel As String = CurrentChannelKey()
+        For Code = VersionCode To 0 Step -1
+            Dim Info = GetUpdateLog(Code)
+            If Info.Items Is Nothing OrElse Info.Items.Length = 0 Then Continue For
+            If LogChannelKey(Info.Version) <> Channel Then Continue For
+            Result.Add(Info)
+        Next
+        Return Result
     End Function
 
     ''' <summary>新版本首次打开时展示一次内置更新日志（首次安装不显示）。</summary>
