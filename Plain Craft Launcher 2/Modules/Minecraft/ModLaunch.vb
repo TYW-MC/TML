@@ -1,4 +1,4 @@
-Public Module ModLaunch
+﻿Public Module ModLaunch
 
 #Region "开始"
 
@@ -1026,7 +1026,13 @@ Retry:
                 Logger.Warn(ex, "微软登录第 4 步汇报 429")
                 Throw New Exception("$登录尝试太过频繁，请等待几分钟后再试！")
             ElseIf ex.StatusCode = HttpStatusCode.Forbidden Then
-                Logger.Warn(ex, "微软登录第 4 步汇报 403")
+                Dim Body As String = If(ex.Response, "")
+                Logger.Warn(ex, "微软登录第 4 步汇报 403，响应内容：" & If(Body = "", "(空)", Body))
+                If Body.Contains("Invalid app registration") OrElse Body.Contains("InvalidAppRegistration") Then
+                    '★ appID 不在 Mojang 的第三方应用白名单里：与网络无关，直连重试没有意义
+                    Throw New Exception("$启动器的应用身份未通过 Mojang 的第三方应用审核（Invalid app registration），无法登录正版。" & vbCrLf &
+                                        "这与你的网络环境无关，你无需任何操作，需要启动器开发者向 Mojang 重新提交应用审核。")
+                End If
                 '常见原因是系统代理 / 加速器：先用直连（不使用系统代理）重试一次
                 Try
                     Dim RetryResult As String = NetRequestByClientNoProxy("https://api.minecraftservices.com/authentication/login_with_xbox",
