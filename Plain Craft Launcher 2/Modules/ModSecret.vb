@@ -835,7 +835,7 @@ Friend Module ModSecret
     ''' </summary>
     Friend Sub CheckChannelUpdateAndRestart()
         If Not ServerEnabled Then
-            Hint("未配置服务端地址，跳过通道更新检查", HintType.Grey)
+            Hint("Server not configured, skipping channel update check", HintType.Blue)
             Return
         End If
         RunInNewThread(
