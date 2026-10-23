@@ -7,9 +7,10 @@ Friend Module ModSecret
     '在开源版的注册表与常规版的注册表隔离，以防数据冲突
     Public Const RegFolder As String = "PCLDebug"
     '用于微软登录的 ClientId
-    Public OAuthClientId As String = If(Environment.GetEnvironmentVariable("PCL_MS_CLIENT_ID"), "***REMOVED***")
+    '★ 与上游开源版一致：仓库里不保存真实密钥，构建时通过环境变量注入（PCL_MS_CLIENT_ID / PCL_CURSEFORGE_API_KEY）
+    Public OAuthClientId As String = If(Environment.GetEnvironmentVariable("PCL_MS_CLIENT_ID"), "")
     'CurseForge API Key
-    Public CurseForgeAPIKey As String = If(Environment.GetEnvironmentVariable("PCL_CURSEFORGE_API_KEY"), "***REMOVED***")
+    Public CurseForgeAPIKey As String = If(Environment.GetEnvironmentVariable("PCL_CURSEFORGE_API_KEY"), "")
     'Self-hosted server address (announcements / update download / beta & ban management).
     'Must end with '/'. Leave EMPTY to disable all server features (open-source default).
     '★ To self-host, set this to your own server URL, e.g. "http://your-server.com:8080/" ★
