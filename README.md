@@ -1,8 +1,22 @@
-# TYW Minecraft Launcher
+# TYW Launcher
 
-A customized build of **Plain Craft Launcher 2 (PCL2)** for the TYW Minecraft community, with a self-hosted server-side management layer: per-channel announcements, in-app updates, a server-gated beta channel, and device banning.
+**TYW Launcher** is an open-source, free-of-charge **launcher for Minecraft: Java Edition** for Windows, derived from
+the open-source **Plain Craft Launcher 2 (PCL2)** codebase. Players sign in with **their own Microsoft account** to
+launch the copy of the game they already own. No ads, no in-app purchases, no monetization.
 
-> **This is NOT the original PCL2.** All original PCL2 code belongs to LTCat and the PCL community — see [Original Project](#original-project) below.
+> NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.
+
+- Source code (auditable): https://github.com/TYW-MC/TYW-Minecraft-Launcher
+- Issue tracker: https://github.com/TYW-MC/TYW-Minecraft-Launcher/issues
+- Platform: Windows x64 · VB.NET / WPF · .NET Framework 4.8
+
+Game files are **not** redistributed here; they are downloaded at runtime from official / official-mirror CDNs.
+The launcher does not bypass authentication or entitlement checks — online play requires owning Minecraft: Java
+Edition, and every session uses the token obtained from the user's own account. Account tokens are stored only on the
+user's device.
+
+> **This is NOT the original PCL2.** All original PCL2 code belongs to LTCat and the PCL community — see
+> [Original Project](#original-project) below.
 
 ## Original Project
 
@@ -15,15 +29,16 @@ This repository is a fork-style redistribution of the open-source PCL2 code with
 
 ## What's Different from Upstream PCL2
 
-- Rebranded to **TYW Minecraft Launcher** (new icon, About/Credits pages, crash logs, etc.), with a "Based on PCL" attribution kept in the About page
+- Rebranded to **TYW Launcher** (new icon, About/Credits pages, crash logs, etc.), with a "Based on PCL" attribution kept in the About page
 - **Three release channels**: Release / Snapshot / Beta (the Beta channel is gated by server-issued beta codes bound to a device ID)
-- **Device banning**: the launcher checks a server endpoint on startup; banned devices are locked out with the reason shown
-- **Server announcements**: per-channel popup announcements pushed from the server (shown once per content, remembered in the registry)
-- **In-app updates**: per-channel version codes on the server drive update prompts and one-click download-and-restart
-- **Built-in changelog** for each version, independent of server announcements
-- **Anonymous error reporting** to the self-hosted server (can be disabled by the user, forced on for the beta channel)
+- **Built-in changelog** for each version, kept in the client and independent of any server
+- Optional self-hosted extras (see [Server Features](#optional-server-features)): announcements, in-app updates, beta gating, device banning, anonymous error reports
 
-## Server Features & Self-Hosting
+## Optional Server Features
+
+These are **operational extras of the same project**. They **never call the Minecraft Game Service API** and are
+**not part of any API access request**. With no server URL configured, all of them are disabled and the launcher
+works standalone.
 
 The client is fully open source, but the management server is **private**. To use the server-dependent features, you must implement your own backend and point the launcher to it.
 
@@ -67,7 +82,7 @@ Or just push a tag (`v*`) — **GitHub Actions builds automatically and attaches
 ```
 Plain Craft Launcher 2/   Main launcher project (VB.NET WPF, .NET Framework 4.8)
 PCLCS/                    PCL core support code (from the upstream open-source release)
-MeloongCore/              Vendored MeloongCore library (Apache-2.0, from Meloong-Git/MeloongCore)
+MeloongCore/              Git submodule (Apache-2.0, https://github.com/Meloong-Git/MeloongCore)
 ```
 
 ## License & Credits
@@ -79,4 +94,8 @@ MeloongCore/              Vendored MeloongCore library (Apache-2.0, from Meloong
 
 ## Disclaimer
 
-This launcher is a community modification and is not affiliated with Mojang or Microsoft. Minecraft is a trademark of Mojang Synergies AB.
+NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.
+
+This launcher is a community modification and is not affiliated with, endorsed by, or associated with Mojang or
+Microsoft. Minecraft is a trademark of Mojang Synergies AB. "Minecraft" is used here only descriptively, to indicate
+which game this launcher starts.

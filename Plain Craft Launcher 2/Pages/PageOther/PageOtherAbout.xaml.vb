@@ -33,6 +33,17 @@ Public Class PageOtherAbout
             Logger.Warn(ex, "添加改版说明失败")
         End Try
 
+        '在「关于」卡片底部加上 Mojang 使用指南要求的非官方声明
+        Try
+            For Each Child As UIElement In PanMain.Children
+                Dim Card = TryCast(Child, MyCard)
+                If Card Is Nothing OrElse Card.Title <> "关于" Then Continue For
+                AppendDisclaimerLine(Card)
+            Next
+        Catch ex As Exception
+            Logger.Warn(ex, "添加非官方声明失败")
+        End Try
+
         '特别鸣谢里的 PCL 统一写成「原PCL」；「PCL 内群的各位」这一条保持原样
         Try
             For Each Child As UIElement In PanMain.Children
@@ -95,6 +106,19 @@ Public Class PageOtherAbout
             .HorizontalAlignment = HorizontalAlignment.Right,
             .Foreground = New SolidColorBrush(Color.FromRgb(150, 150, 150))})
         Card.BorderChild = Host
+    End Sub
+
+    ''' <summary>在卡片底部追加 Mojang 使用指南要求的非官方声明。</summary>
+    Private Sub AppendDisclaimerLine(Card As MyCard)
+        Dim Host = TryCast(Card.BorderChild, StackPanel)
+        If Host Is Nothing Then Return
+        Host.Children.Add(New TextBlock With {
+            .Text = "NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.",
+            .FontSize = 10,
+            .TextWrapping = TextWrapping.Wrap,
+            .Margin = New Thickness(21, 0, 21, 12),
+            .HorizontalAlignment = HorizontalAlignment.Right,
+            .Foreground = New SolidColorBrush(Color.FromRgb(150, 150, 150))})
     End Sub
 
     Public Shared Sub CopyIdentify() Handles BtnDonateCopy.Click
