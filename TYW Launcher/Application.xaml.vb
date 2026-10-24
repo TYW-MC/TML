@@ -173,8 +173,8 @@ RetryCacheCheck:
                 End Try
             End If
             '将已有的 TYW Launcher 窗口拖出来
-            Dim WindowHwnd As IntPtr = FindWindow(Nothing, "TYW Minecraft Launcher　")
-            If WindowHwnd = IntPtr.Zero Then WindowHwnd = FindWindow(Nothing, "TYW Launcher　")
+            Dim WindowHwnd As IntPtr = FindWindow(Nothing, "TYW Launcher")
+            If WindowHwnd = IntPtr.Zero Then WindowHwnd = FindWindow(Nothing, "TYW Minecraft Launcher　")
             If WindowHwnd = IntPtr.Zero Then WindowHwnd = FindWindow(Nothing, "Plain Craft Launcher　")
             If WindowHwnd = IntPtr.Zero Then WindowHwnd = FindWindow(Nothing, "Plain Craft Launcher 2　")
             If WindowHwnd <> IntPtr.Zero Then ShowWindowToTop(WindowHwnd)

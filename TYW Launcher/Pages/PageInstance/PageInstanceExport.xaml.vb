@@ -1,4 +1,4 @@
-Public Class ExportOption
+﻿Public Class ExportOption
     Public Property Title As String
     Public Property Description As String
     Public Property Rules As String
@@ -479,7 +479,7 @@ Public Class PageInstanceExport
             Loaders.Add(New LoaderTask(Of Integer, Integer)("下载 TYW Launcher 正式版",
             Sub(Loader As LoaderTask(Of Integer, Integer))
                 DownloadLatestPCL(Loader)
-                FileUtils.Copy(PathTemp & "Latest.exe", CacheFolder & "TYW Minecraft Launcher.exe")
+                FileUtils.Copy(PathTemp & "Latest.exe", CacheFolder & "TYW Launcher.exe")
             End Sub) With {.ProgressWeight = 0.5, .Block = False})
         End If
 
@@ -566,7 +566,7 @@ Public Class PageInstanceExport
             If DirectoryUtils.Exists(TargetInstance.PathVersion & "TYW Launcher\") Then DirectoryUtils.Copy(TargetInstance.PathVersion & "TYW Launcher\", OverridesFolder & "TYW Launcher\")
             WriteIni(OverridesFolder & "TYW Launcher\Setup.ini", "IsStar", False)
             '复制 TYW Launcher 本体（正式版）
-            If BuildType = BuildTypes.Release AndAlso IncludePCL Then FileUtils.Copy(PathExe, CacheFolder & "TYW Minecraft Launcher.exe")
+            If BuildType = BuildTypes.Release AndAlso IncludePCL Then FileUtils.Copy(PathExe, CacheFolder & "TYW Launcher.exe")
             '复制 TYW Launcher 个性化内容
             If IncludePCLCustom Then
                 If DirectoryUtils.Exists(Paths.Base & "TYW Launcher\Pictures\") Then DirectoryUtils.Copy(Paths.Base & "TYW Launcher\Pictures\", CacheFolder & "TYW Launcher\Pictures\")

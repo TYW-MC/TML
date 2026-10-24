@@ -34,9 +34,9 @@ Module ModBeta
     ''' <summary>通道名 → 服务端 www 中的文件名。</summary>
     Friend Function ChannelExeFile(Channel As String) As String
         Select Case Channel
-            Case "Beta" : Return "TYW Minecraft Launcher Beta.exe"
-            Case "Snapshot" : Return "TYW Minecraft Launcher Snapshot.exe"
-            Case Else : Return "TYW Minecraft Launcher.exe"
+            Case "Beta" : Return "TYW Launcher Beta.exe"
+            Case "Snapshot" : Return "TYW Launcher Snapshot.exe"
+            Case Else : Return "TYW Launcher.exe"
         End Select
     End Function
 

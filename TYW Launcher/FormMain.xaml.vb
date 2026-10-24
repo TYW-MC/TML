@@ -123,6 +123,8 @@ Public Class FormMain
     Private Sub FormMain_Loaded(sender As Object, e As RoutedEventArgs) Handles Me.Loaded
         ApplicationStartTick = GetTimeMs()
         Handle = New WindowInteropHelper(Me).Handle
+        '窗口标题：XAML（BAML）里的旧标题无法修改，这里在运行期统一覆盖为新品牌名
+        Title = "TYW Launcher"
         '读取设置
         UpdateBackgroundAndTitleBar()
         PageSetupUI.HiddenRefresh()
@@ -257,7 +259,7 @@ Public Class FormMain
             End Try
             '清理自动更新文件
             Try
-                FileUtils.Delete(Paths.Base & "TYW Launcher\Plain Craft Launcher 2.exe")
+                FileUtils.Delete(Paths.Base & "TYW Launcher\TYW Launcher.exe")
             Catch ex As Exception
                 Logger.Warn(ex, "清理自动更新文件失败")
             End Try

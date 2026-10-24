@@ -42,7 +42,7 @@ works standalone.
 
 The client is fully open source, but the management server is **private**. To use the server-dependent features, you must implement your own backend and point the launcher to it.
 
-Set the server URL in [`Plain Craft Launcher 2/Modules/ModSecret.vb`](Plain%20Craft%20Launcher%202/Modules/ModSecret.vb):
+Set the server URL in [`TYW Launcher/Modules/ModSecret.vb`](TYW%20Launcher/Modules/ModSecret.vb):
 
 ```vb
 Public Const ServerAddress As String = ""  ' e.g. "http://your-server.com:8080/"
@@ -59,7 +59,7 @@ The client expects these HTTP endpoints:
 | `ban?ident={deviceId}` | GET | JSON `{"banned": bool, "reason": "..."}` |
 | `report` | POST | Accepts plain-text error reports (body) |
 | `config.json` | GET | JSON `{"settings": {...}}` cloud configuration (optional) |
-| `TYW Minecraft Launcher.exe` / `... Snapshot.exe` / `... Beta.exe` | GET | Per-channel launcher binaries for updates |
+| `TYW Launcher.exe` / `... Snapshot.exe` / `... Beta.exe` | GET | Per-channel launcher binaries for updates |
 
 The device ID is a machine-derived fingerprint shown in the ban dialog, so users can send it to you for (un)banning.
 
@@ -68,7 +68,7 @@ The device ID is a machine-derived fingerprint shown in the ban dialog, so users
 Requirements: **Windows**, **Visual Studio 2022** (with the .NET desktop development workload) or the **.NET Framework 4.8 Developer Pack**.
 
 ```bash
-msbuild "Plain Craft Launcher 2.sln" /restore /p:Configuration=Release /m
+msbuild "TYW Launcher.sln" /restore /p:Configuration=Release /m
 ```
 
 - `Debug` → Beta-channel build
@@ -80,7 +80,7 @@ Or just push a tag (`v*`) — **GitHub Actions builds automatically and attaches
 ## Repository Layout
 
 ```
-Plain Craft Launcher 2/   Main launcher project (VB.NET WPF, .NET Framework 4.8)
+TYW Launcher/             Main launcher project (VB.NET WPF, .NET Framework 4.8)
 PCLCS/                    PCL core support code (from the upstream open-source release)
 MeloongCore/              Git submodule (Apache-2.0, https://github.com/Meloong-Git/MeloongCore)
 ```

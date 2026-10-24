@@ -249,8 +249,8 @@ Friend Module ModSecret
     ''' <summary>当前更新通道对应的启动器文件名（服务端 www 中的文件）。</summary>
     Friend ReadOnly Property ChannelExeName As String
         Get
-            If IsBetaChannel Then Return "TYW Minecraft Launcher Beta.exe"
-            Return If(IsSnapshotChannel, "TYW Minecraft Launcher Snapshot.exe", "TYW Minecraft Launcher.exe")
+            If IsBetaChannel Then Return "TYW Launcher Beta.exe"
+            Return If(IsSnapshotChannel, "TYW Launcher Snapshot.exe", "TYW Launcher.exe")
         End Get
     End Property
 
@@ -460,7 +460,7 @@ Friend Module ModSecret
             Dim Task As New LoaderTask(Of Integer, Integer)("下载 TYW Launcher 正式版",
                 Sub(Loader As LoaderTask(Of Integer, Integer))
                     Dim DlLoader As New LoaderDownload("下载 TYW Launcher 正式版",
-                        New List(Of NetFile) From {New NetFile({ServerAddress & "TYW Minecraft Launcher.exe"}, PathTemp & "Latest.exe")})
+                        New List(Of NetFile) From {New NetFile({ServerAddress & "TYW Launcher.exe"}, PathTemp & "Latest.exe")})
                     DlLoader.Start(Loader)
                     DlLoader.WaitForExit()
                 End Sub)

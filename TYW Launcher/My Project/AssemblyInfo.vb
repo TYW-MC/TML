@@ -8,10 +8,10 @@ Imports System.Runtime.InteropServices
 
 '查看程序集特性的值
 
-<Assembly: AssemblyTitle("TYW Minecraft Launcher")>
+<Assembly: AssemblyTitle("TYW Launcher")>
 <Assembly: AssemblyDescription("Minecraft 启动器")>
 <Assembly: AssemblyCompany("")>
-<Assembly: AssemblyProduct("TYW Minecraft Launcher")>
+<Assembly: AssemblyProduct("TYW Launcher")>
 <Assembly: AssemblyCopyright("Copyright © TYW Studio")>
 <Assembly: AssemblyConfiguration("PCL2 Config Mark")>
 <Assembly: ComVisible(False)>
