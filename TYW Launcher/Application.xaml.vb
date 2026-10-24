@@ -15,9 +15,12 @@ Public Class Application
             End If
             '多语言：先按设置应用语言，再注册全局翻译钩子
             Try
-                Dim LangSetting = Settings.Get("SystemLanguage")
-                Logger.Info($"[Lang] 语言设置读取：{If(LangSetting, "null")}")
-                ModLang.SetLangByIndex(LangSetting)
+                ModLang.MigrateLanguageSetting() '旧版本的 Setup.ini 设置迁移到注册表（三通道共享）
+                '★ 语言设置以注册表为准（三通道共用一份）：在任一通道改过语言，另外两个通道下次启动都跟随
+                Dim LangIndex As Integer = ModLang.LoadLanguageIndex()
+                Logger.Info($"[Lang] 语言设置读取：{LangIndex}")
+                Settings.Set("SystemLanguage", LangIndex) '同步本通道设置值，让设置页下拉框显示正确项
+                ModLang.SetLangByIndex(LangIndex)
                 Logger.Info($"[Lang] 当前语言：{ModLang.CurrentLang}")
                 ModLang.InitLangs()
                 ModLang.RegisterGlobalHook()

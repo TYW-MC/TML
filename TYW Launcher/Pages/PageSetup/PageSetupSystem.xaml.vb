@@ -6,6 +6,11 @@ Public Class PageSetupSystem
         '重复加载部分
         PanBack.ScrollToHome()
 
+        '游戏语言：文案跟随启动器语言（「自动设置为 简体中文 / English / 日本語 …」）
+        RefreshGameLangText()
+        RemoveHandler ModLang.LanguageChanged, AddressOf ModLang_LanguageChanged
+        AddHandler ModLang.LanguageChanged, AddressOf ModLang_LanguageChanged
+
         '内测版体验开关（XAML 走预生成的 BAML，改 XAML 不生效，所以这里在运行期创建）
         BuildBetaCheck()
 
@@ -31,6 +36,23 @@ Public Class PageSetupSystem
         AniControlEnabled -= 1
 
     End Sub
+    ''' <summary>
+    ''' 游戏语言那一行：「自动设置为 简体中文 / English / 日本語 …」。
+    ''' 勾选后启动游戏时会把 options.txt 的 lang 设成启动器当前语言对应的游戏语言（见 ModLaunch）。
+    ''' </summary>
+    Private Sub RefreshGameLangText()
+        Try
+            CheckHelpChinese.Text = ModLang.T("自动设置为 %LANG%").Replace("%LANG%", ModLang.CurrentLocalName)
+            '文案由本页维护（随语言变化），别让巡检按中文原文再翻一遍
+            ModLang.IgnoreElement(CheckHelpChinese)
+        Catch ex As Exception
+        End Try
+    End Sub
+
+    Private Sub ModLang_LanguageChanged(sender As Object, e As EventArgs)
+        RefreshGameLangText()
+    End Sub
+
     Public Sub Reload()
         SettingService.RefreshSettings(Me)
         '内测版：把自动更新显示成关闭（不写回设置，退出内测版后原来的勾选状态还在）
@@ -175,7 +197,6 @@ Public Class PageSetupSystem
     ''' </summary>
     Private Sub BuildBetaCheck()
         If BetaRowAdded Then Return
-        If Not ServerEnabled Then Return 'Server not configured: the beta feature is unavailable
         Dim Host As Grid = TryCast(CheckSystemAutoUpdate.Parent, Grid)
         If Host Is Nothing Then Return
         BetaRowAdded = True
@@ -186,9 +207,8 @@ Public Class PageSetupSystem
                 Dim Row = Grid.GetRow(Child)
                 If Row >= 8 Then Grid.SetRow(Child, Row + 1)
             Next
-            '★ Only reflect the actual channel of the running program: all builds share the
-            '  same registry, so reading BetaEnabled would make the Snapshot build wrongly
-            '  show the beta checkbox as checked after it was enabled in the Release build
+            '★ 只看当前程序的实际通道：三个版本的设置存在同一个注册表里，
+            '  如果读 BetaEnabled，正式版勾过内测后快照版也会错误地显示“已开启”
             BetaCheck = New MyCheckBox With {
                 .Text = "内测版体验",
                 .Height = 22,
@@ -250,8 +270,8 @@ Public Class PageSetupSystem
 
     ''' <summary>勾选：输入内测码 → 联网校验 → 下载内测版并重启。</summary>
     Private Sub EnterBeta()
-        'Record the current channel state to restore if the download is cancelled/failed.
-        '★ Use the actual channel, not the BetaEnabled setting (it is shared across builds and may hold stale values)
+        '记录当前的通道状态：下载被取消或失败时要原样恢复
+        '★ 这里用实际通道而不是 BetaEnabled 设置——BetaEnabled 是三个版本共享的，可能残留旧值
         Dim PrevEnabled As Boolean = IsBetaChannel
         Dim PrevCode As String = Settings.Get(Of String)("BetaCode")
         Dim Code As String = MyMsgBoxInput("内测版体验",

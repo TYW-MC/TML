@@ -4105,5 +4105,6 @@
  "设置第三方登录、限制登录方式": "Set up third-party login and restrict login methods",
  "购买 Minecraft 正版": "Buy Minecraft Premium",
  "资源安装指南": "Resource Installation Guide",
- "赞助与内测指南": "Sponsorship and Beta Testing Guide"
+ "赞助与内测指南": "Sponsorship and Beta Testing Guide",
+ "自动设置为 %LANG%": "Automatically set to %LANG%"
 }

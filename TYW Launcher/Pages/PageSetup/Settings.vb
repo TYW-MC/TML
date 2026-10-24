@@ -2,6 +2,12 @@
 
 Public Class Settings
 
+    ''' <summary>
+    ''' 全部设置项定义。
+    ''' 注意：集合初始化器内部不能插整行注释（VB 隐式行继续后跟注释会截断语句，报 BC30201/BC30035），
+    '''      说明一律写在这里或写在某一项的行尾。
+    ''' SystemLanguage 的实际存储走注册表（见 ModLang.LoadLanguageIndex），三个通道共用一份。
+    ''' </summary>
     Public Shared ReadOnly Entries As Dictionary(Of String, Setting) = (New List(Of Setting) From {
         New Setting("Identify", "", Source:=Sources.Registry),
         New Setting("WindowHeight", 550),
