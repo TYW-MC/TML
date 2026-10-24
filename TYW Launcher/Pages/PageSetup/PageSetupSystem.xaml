@@ -152,7 +152,16 @@
                     <local:MyCheckBox Margin="0,5,0,4" Text="出错匿名上报" Grid.Row="8" Height="22" Grid.ColumnSpan="2"
                         x:Name="CheckSystemErrorReport" local:SettingService.Key="SystemErrorReport"
                         ToolTip="启动器出现错误时，自动将匿名的错误信息发送给服务端，方便排查问题。&#xa;不会上传任何个人信息。" />
-                    <Grid Height="35" Grid.Row="9" Grid.ColumnSpan="5" Margin="0,12,0,0">
+                    <TextBlock Grid.Row="9" VerticalAlignment="Center" HorizontalAlignment="Left" Text="语言 / Language" Margin="0,0,25,0"
+                               ToolTip="切换启动器界面显示语言。&#xa;Switch the launcher UI language.&#xa;部分动态生成的内容可能仍显示中文。" />
+                    <local:MyComboBox x:Name="ComboSystemLanguage" Grid.Row="9" Grid.Column="1" local:SettingService.Key="SystemLanguage">
+                        <local:MyComboBoxItem Content="简体中文（默认）" local:SettingService.Value="0" />
+                        <local:MyComboBoxItem Content="English" local:SettingService.Value="1" />
+                        <local:MyComboBoxItem Content="日本語" local:SettingService.Value="2" />
+                        <local:MyComboBoxItem Content="Русский" local:SettingService.Value="3" />
+                        <local:MyComboBoxItem Content="Bahasa Indonesia" local:SettingService.Value="4" />
+                    </local:MyComboBox>
+                    <Grid Height="35" Grid.Row="10" Grid.ColumnSpan="5" Margin="0,12,0,0">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" SharedSizeGroup="Button" />
                             <ColumnDefinition Width="Auto" SharedSizeGroup="Button" />
@@ -162,7 +171,7 @@
                         <local:MyButton Grid.Column="1" x:Name="BtnSystemSettingExp" MinWidth="140" Text="导出设置" Padding="13,0" Margin="0,0,20,0" />
                         <local:MyButton Grid.Column="2" x:Name="BtnSystemSettingImp" MinWidth="140" Text="导入设置" Padding="13,0" Margin="0,0,20,0" />
                     </Grid>
-                    <Grid Height="35" Grid.Row="9" Grid.ColumnSpan="5" Margin="0,12,0,0" x:Name="PanDonate">
+                    <Grid Height="35" Grid.Row="10" Grid.ColumnSpan="5" Margin="0,12,0,0" x:Name="PanDonate">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" SharedSizeGroup="Button" />
                             <ColumnDefinition Width="Auto" SharedSizeGroup="Button" />

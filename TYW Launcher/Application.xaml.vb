@@ -13,6 +13,17 @@ Public Class Application
                 WaitingMutex(e)
                 Logger.Instance = New PclLogger With {.logFolder = Paths.BaseThenName, .MinLevel = If(ModeDebug, LogLevel.Trace, LogLevel.Info)}
             End If
+            '多语言：先按设置应用语言，再注册全局翻译钩子
+            Try
+                Dim LangSetting = Settings.Get("SystemLanguage")
+                Logger.Info($"[Lang] 语言设置读取：{If(LangSetting, "null")}")
+                ModLang.SetLangByIndex(LangSetting)
+                Logger.Info($"[Lang] 当前语言：{ModLang.CurrentLang}")
+                ModLang.InitLangs()
+                ModLang.RegisterGlobalHook()
+            Catch ex As Exception
+                Logger.Warn(ex, "多语言初始化失败")
+            End Try
             '提升主线程优先级
             Thread.CurrentThread.Priority = ThreadPriority.Highest
             '执行开发版测试

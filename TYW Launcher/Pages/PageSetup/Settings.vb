@@ -154,6 +154,7 @@ Public Class Settings
         New Setting("UiLogoType", 1, OnChanged:=AddressOf FormMain.UpdateBackgroundAndTitleBar),
         New Setting("UiLogoText", "", OnChanged:=AddressOf FormMain.UpdateBackgroundAndTitleBar),
         New Setting("UiLogoLeft", False, OnChanged:=AddressOf FormMain.UpdateBackgroundAndTitleBar),
+        New Setting("SystemLanguage", 0, OnChanged:=AddressOf ModLang.OnLanguageSettingChanged),
         New Setting("UiMusicVolume", 500),
         New Setting("UiMusicStop", False),
         New Setting("UiMusicStart", False),

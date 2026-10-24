@@ -231,6 +231,12 @@ EndHint:
                              Optional Button1 As String = "确定", Optional Button2 As String = "", Optional Button3 As String = "",
                              Optional IsWarn As Boolean = False, Optional HighLight As Boolean = True, Optional ForceWait As Boolean = False,
                              Optional Button1Action As Action = Nothing, Optional Button2Action As Action = Nothing, Optional Button3Action As Action = Nothing) As Integer
+        '多语言：弹窗文本在中心入口统一翻译
+        Caption = ModLang.T(Caption)
+        Title = ModLang.T(Title)
+        Button1 = ModLang.T(Button1)
+        If Button2 IsNot Nothing Then Button2 = ModLang.T(Button2)
+        If Button3 IsNot Nothing Then Button3 = ModLang.T(Button3)
         '将弹窗列入队列
         Dim Converter As New MyMsgBoxConverter With {.Type = MyMsgBoxType.Text, .Button1 = Button1, .Button2 = Button2, .Button3 = Button3, .Text = Caption, .IsWarn = IsWarn, .Title = Title, .HighLight = HighLight, .ForceWait = True, .Button1Action = Button1Action, .Button2Action = Button2Action, .Button3Action = Button3Action}
         If Button2.Length > 0 OrElse ForceWait Then
@@ -284,6 +290,12 @@ EndHint:
     ''' <param name="Button2">显示的第二个按钮，默认为“取消”。</param>
     ''' <param name="IsWarn">是否为警告弹窗，若为 True，弹窗配色和背景会变为红色。</param>
     Public Function MyMsgBoxInput(Title As String, Optional Text As String = Nothing, Optional DefaultInput As String = Nothing, Optional ValidateRules As Collection(Of Validate) = Nothing, Optional HintText As String = "", Optional Button1 As String = "确定", Optional Button2 As String = "取消", Optional IsWarn As Boolean = False) As String
+        '多语言：弹窗文本在中心入口统一翻译
+        Title = ModLang.T(Title)
+        If Text IsNot Nothing Then Text = ModLang.T(Text)
+        HintText = ModLang.T(HintText)
+        Button1 = ModLang.T(Button1)
+        If Button2 IsNot Nothing Then Button2 = ModLang.T(Button2)
         '将弹窗列入队列
         Dim Converter As New MyMsgBoxConverter With {.Text = If(Text, ""), .HintText = If(HintText, ""), .Type = MyMsgBoxType.Input, .ValidateRules = If(ValidateRules, New Collection(Of Validate)), .Button1 = Button1, .Button2 = Button2, .Content = DefaultInput, .IsWarn = IsWarn, .Title = Title}
         WaitingMyMsgBox.Enqueue(Converter)
@@ -307,6 +319,10 @@ EndHint:
     ''' <param name="Button2">显示的第二个按钮，默认为空。</param>
     ''' <param name="IsWarn">是否为警告弹窗，若为 True，弹窗配色和背景会变为红色。</param>
     Public Function MyMsgBoxSelect(Selections As IEnumerable(Of IMyRadio), Optional Title As String = "提示", Optional Button1 As String = "确定", Optional Button2 As String = "", Optional IsWarn As Boolean = False) As Integer?
+        '多语言：弹窗文本在中心入口统一翻译
+        Title = ModLang.T(Title)
+        Button1 = ModLang.T(Button1)
+        If Button2 IsNot Nothing Then Button2 = ModLang.T(Button2)
         '将弹窗列入队列
         Dim Converter As New MyMsgBoxConverter With {.Type = MyMsgBoxType.Select, .Button1 = Button1, .Button2 = Button2, .Content = Selections, .IsWarn = IsWarn, .Title = Title}
         WaitingMyMsgBox.Enqueue(Converter)

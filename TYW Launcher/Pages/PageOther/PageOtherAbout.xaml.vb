@@ -10,7 +10,8 @@ Public Class PageOtherAbout
         If IsLoaded Then Return
         IsLoaded = True
 
-        ItemAboutPcl.Info = ItemAboutPcl.Info.Replace("%VERSION%", VersionDisplay).Replace("%VERSIONCODE%", VersionCode).Replace("%BRANCH%", CInt(BuildType))
+        '先翻译含占位符的模板串（词典里存的是 %VERSION% 模板形式），再替换成实际版本号
+        ItemAboutPcl.Info = ModLang.T(ItemAboutPcl.Info).Replace("%VERSION%", VersionDisplay).Replace("%VERSIONCODE%", VersionCode).Replace("%BRANCH%", CInt(BuildType))
         '赞助者栏目已删除（识别码入口搬到 设置 - 其他 - 启动器）
         'XAML 走的是预生成的 BAML，改 XAML 不会生效，所以这里在运行期把整张卡片从页面上摘掉
         Try

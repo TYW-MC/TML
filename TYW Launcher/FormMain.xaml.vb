@@ -6,7 +6,6 @@ Public Class FormMain
 #Region "基础"
 
     '更新日志
-    '更新日志
     '★ 只读模块里的内置日志（ModUpdateLog），按版本码区间汇总本次跨过的版本。
     '  上游 PCL 那套硬编码的 FeatureList 用的是 2.x 的版本码（373~414），
     '  我们的版本码是 1.1.x 系列（112 起），套上去会把几年前的日志全列出来。
@@ -215,15 +214,12 @@ Public Class FormMain
                             ClearBetaState()
                             '★ 内测资格被停用 / 删除时，一律回退正式版（即使勾了「快照版测试」也不再回退到快照版）
                             '  同时关掉「快照版测试」开关：正式版 exe 只要这个开关还开着就会被当成快照通道，
-                            '  下次检查更新又会自己跑回快照版，等于没回退
+                            '  下次检查更新又会自己跑回去快照版，等于没回退
                             Settings.Set("SystemSnapshotTest", False)
-                            '切回失败（下载取消 / 断网）时不再继续运行：内测版没有有效内测码，只能退出
+                            '切回失败（下载取消 / 断网）时不再继续运行：进入内测锁，禁用全部功能，
+                            '只允许 输入内测码 / 重试切回正式版 / 退出（输入有效内测码后立即恢复）
                             If Not SwitchChannel("Release") Then
-                                RunInUi(Sub()
-                                            MyMsgBox("切回正式版失败（程序未下载完成），内测版无法继续使用，启动器将退出。" & vbCrLf &
-                                                     "请检查网络后重新打开启动器。", "内测版", IsWarn:=True)
-                                        End Sub)
-                                EndProgram(False)
+                                EnterBetaLock("切回正式版失败（下载未完成或网络异常），启动器已锁定。")
                             End If
                             Return
                         Case BetaGate.[Exit]
@@ -269,6 +265,112 @@ Public Class FormMain
 
         Logger.Info($"第三阶段加载用时：{GetTimeMs() - ApplicationStartTick} ms")
     End Sub
+
+#Region "内测锁"
+
+    ''' <summary>内测锁遮罩（Nothing = 未锁定）。锁定时禁用全部功能，只允许输入内测码 / 切回正式版 / 退出。</summary>
+    Private PanBetaLock As Grid = Nothing
+    Private LabBetaLockReason As TextBlock = Nothing
+
+    ''' <summary>
+    ''' 进入内测锁：全屏遮罩挡住所有功能（输入有效内测码后立即恢复）。
+    ''' </summary>
+    Public Sub EnterBetaLock(Optional Reason As String = "")
+        Try
+            If PanBetaLock IsNot Nothing Then
+                If Reason <> "" Then LabBetaLockReason.Text = Reason
+                PanBetaLock.Visibility = Visibility.Visible
+                Return
+            End If
+            LabBetaLockReason = New TextBlock With {
+                .TextWrapping = TextWrapping.Wrap, .TextAlignment = TextAlignment.Center, .MaxWidth = 430,
+                .Foreground = New SolidColorBrush(Color.FromRgb(225, 225, 225)), .FontSize = 13,
+                .Margin = New Thickness(0, 0, 0, 20)}
+            Dim LabTitle As New TextBlock With {
+                .Text = "内测版不可用", .FontSize = 20, .FontWeight = FontWeights.Bold,
+                .Foreground = Brushes.White, .HorizontalAlignment = HorizontalAlignment.Center,
+                .Margin = New Thickness(0, 0, 0, 12)}
+            Dim LabTip As New TextBlock With {
+                .Text = "当前设备没有有效的内测资格，启动器已锁定全部功能。" & vbCrLf &
+                        "输入有效内测码即可解锁，也可以切回正式版继续使用。",
+                .TextWrapping = TextWrapping.Wrap, .TextAlignment = TextAlignment.Center, .MaxWidth = 430,
+                .Foreground = New SolidColorBrush(Color.FromRgb(225, 225, 225)), .FontSize = 13,
+                .Margin = New Thickness(0, 0, 0, 20)}
+            Dim BtnCode As New MyButton With {
+                .Text = "输入内测码", .MinWidth = 170, .Padding = New Thickness(13, 0, 13, 0),
+                .Margin = New Thickness(0, 0, 0, 12), .HorizontalAlignment = HorizontalAlignment.Center}
+            Dim BtnSwitch As New MyButton With {
+                .Text = "重试切回正式版", .MinWidth = 170, .Padding = New Thickness(13, 0, 13, 0),
+                .Margin = New Thickness(0, 0, 0, 12), .HorizontalAlignment = HorizontalAlignment.Center}
+            Dim BtnExit As New MyButton With {
+                .Text = "退出", .MinWidth = 170, .Padding = New Thickness(13, 0, 13, 0),
+                .HorizontalAlignment = HorizontalAlignment.Center}
+            Dim PanBody As New StackPanel With {
+                .HorizontalAlignment = HorizontalAlignment.Center, .VerticalAlignment = VerticalAlignment.Center}
+            PanBody.Children.Add(LabTitle)
+            PanBody.Children.Add(LabTip)
+            PanBody.Children.Add(LabBetaLockReason)
+            PanBody.Children.Add(BtnCode)
+            PanBody.Children.Add(BtnSwitch)
+            PanBody.Children.Add(BtnExit)
+            PanBetaLock = New Grid With {.Background = New SolidColorBrush(Color.FromArgb(185, 18, 18, 22))}
+            PanBetaLock.Children.Add(PanBody)
+            Grid.SetRow(PanBetaLock, 1)
+            '★ 必须插在 PanMsg 之前：弹窗层（MyMsgBox 等）是 PanForm 的后置子元素，
+            '  遮罩若盖在弹窗层之上，锁定状态下的所有弹窗都会被挡住无法点击
+            Dim MsgIndex As Integer = PanForm.Children.IndexOf(PanMsg)
+            If MsgIndex < 0 Then MsgIndex = PanForm.Children.Count
+            PanForm.Children.Insert(MsgIndex, PanBetaLock)
+            AddHandler BtnCode.Click, Sub(s As Object, e As MouseButtonEventArgs) BetaLockInputCode()
+            AddHandler BtnSwitch.Click, Sub(s As Object, e As MouseButtonEventArgs) BetaLockSwitchRelease()
+            AddHandler BtnExit.Click, Sub(s As Object, e As MouseButtonEventArgs) EndProgram(False)
+            If Reason <> "" Then LabBetaLockReason.Text = Reason
+            Logger.Info("内测锁：已锁定启动器" & If(Reason = "", "（" & Reason & "）", ""))
+        Catch ex As Exception
+            Logger.Error(ex, "进入内测锁失败")
+            '兜底：遮罩创建失败时直接退出，绝不让无资格的内测版继续可用
+            EndProgram(False)
+        End Try
+    End Sub
+
+    ''' <summary>内测锁：输入内测码，校验通过则解锁。</summary>
+    Private Sub BetaLockInputCode()
+        Dim NewCode As String = MyMsgBoxInput("输入内测码",
+            "内测码由服务端管理员按设备码发放。" & vbCrLf &
+            "你的设备码：" & DeviceCode & vbCrLf & vbCrLf &
+            "校验通过后即可解锁启动器全部功能。", "", HintText:="内测码", Button1:="校验")
+        If NewCode Is Nothing OrElse NewCode.Trim = "" Then Return
+        Try
+            Dim R = VerifyBetaCode(NewCode.Trim())
+            If R.Ok Then
+                Settings.Set("BetaCode", NewCode.Trim())
+                Settings.Set("BetaEnabled", True)
+                Hint("内测码校验通过，已解锁全部功能", HintType.Green)
+                PanBetaLock.Visibility = Visibility.Collapsed
+                LabBetaLockReason.Text = ""
+                Logger.Info("内测锁：输入新内测码并校验通过，已解锁")
+                Return
+            End If
+            MyMsgBox("内测码校验失败：" & If(R.Message = "", "内测码无效或已被停用", R.Message) & vbCrLf &
+                     "启动器保持锁定状态。", "内测锁", "确定", IsWarn:=True)
+        Catch ex As Exception
+            MyMsgBox("校验失败：" & If(IsNetworkIssue(ex), "无法连接服务端，请检查网络后重试。", ex.Message) & vbCrLf &
+                     "启动器保持锁定状态。", "内测锁", "确定", IsWarn:=True)
+        End Try
+    End Sub
+
+    ''' <summary>内测锁：重试切回正式版，成功则由 SwitchChannel 替换重启，失败则保持锁定。</summary>
+    Private Sub BetaLockSwitchRelease()
+        ClearBetaState()
+        Settings.Set("SystemSnapshotTest", False)
+        If Not SwitchChannel("Release") Then
+            MyMsgBox("切回正式版失败（下载未完成或网络异常），启动器保持锁定状态。" & vbCrLf &
+                     "可以重试、输入内测码解锁内测版，或退出。", "内测锁", "确定", IsWarn:=True)
+        End If
+    End Sub
+
+#End Region
+
     '根据打开次数触发的事件
     Private Sub RunCountSub()
         Settings.Set("SystemCount", Settings.Get(Of Integer)("SystemCount") + 1)
