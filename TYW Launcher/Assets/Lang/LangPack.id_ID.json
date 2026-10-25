@@ -4106,5 +4106,21 @@
  "购买 Minecraft 正版": "Beli Minecraft Premium",
  "资源安装指南": "Panduan Instalasi Resource",
  "赞助与内测指南": "Panduan Sponsor dan Uji Beta",
- "自动设置为 %LANG%": "Otomatis atur ke %LANG%"
+ "自动设置为 %LANG%": "Otomatis atur ke %LANG%",
+ "基岩版": "Edisi Bedrock",
+ "已安装": "Terpasang",
+ "选择版本下载": "Pilih Versi untuk Diunduh",
+ "刷新列表": "Segarkan",
+ "正在检测已安装的基岩版……": "Memeriksa Edisi Bedrock yang terpasang…",
+ "未检测到已安装的基岩版": "Edisi Bedrock yang terpasang tidak ditemukan",
+ "正在加载版本列表……": "Memuat daftar versi…",
+ "没有可用的版本": "Tidak ada versi tersedia",
+ "版本数据与下载源来自 mcappx.com，仅提供可安装的 UWP（Microsoft Store）版本，下载后使用系统组件自动安装。": "Data versi dan sumber unduhan disediakan oleh mcappx.com. Hanya versi UWP (Microsoft Store) yang dapat dipasang yang dicantumkan; pemasangan otomatis melalui komponen sistem.",
+ "旧测试版": "Beta Lama",
+ "已安装：%TEXT%": "Terpasang: %TEXT%",
+ "正在获取基岩版 %VER% 的下载直链……": "Mendapatkan tautan unduhan Edisi Bedrock %VER%…",
+ "正在下载基岩版 %VER%（约 1 GB，视网络情况可能需要几分钟）……": "Mengunduh Edisi Bedrock %VER% (sekitar 1 GB, bisa memakan waktu beberapa menit)…",
+ "下载完成，正在安装基岩版 %VER%……": "Unduhan selesai, memasang Edisi Bedrock %VER%…",
+ "基岩版 %VER% 安装完成！可以从开始菜单或本页面启动游戏。": "Edisi Bedrock %VER% selesai dipasang! Anda dapat memulai permainan dari menu Mulai atau halaman ini.",
+ "正在下载安装 %VER%，请稍候……": "Mengunduh dan memasang %VER%, mohon tunggu…"
 }

@@ -343,6 +343,11 @@
     <Compile Include="Modules\Minecraft\ModDownload.vb" />
     <Compile Include="Modules\Minecraft\ModLaunch.vb" />
     <Compile Include="Modules\Minecraft\ModMinecraft.vb" />
+    <Compile Include="Modules\Minecraft\ModBedrock.vb" />
+    <Compile Include="Pages\PageDownload\PageDownloadBedrock.xaml.vb">
+      <DependentUpon>PageDownloadBedrock.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="Pages\PageOther\PageOtherTest.xaml.vb">
       <DependentUpon>PageOtherTest.xaml</DependentUpon>
     </Compile>
@@ -517,6 +522,10 @@
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Include="Pages\PageDownload\Resource\PageDownloadDataPack.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Pages\PageDownload\PageDownloadBedrock.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
     </Page>
