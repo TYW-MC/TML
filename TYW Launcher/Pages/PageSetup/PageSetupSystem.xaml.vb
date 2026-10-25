@@ -165,7 +165,63 @@ Public Class PageSetupSystem
         End If
     End Sub
     Private Sub BtnSystemUpdate_Click(sender As Object, e As EventArgs) Handles BtnSystemUpdate.Click
+        If IsBetaChannel Then
+            BetaGetUpdate()
+            Return
+        End If
         UpdateCheckByButton()
+    End Sub
+
+    ''' <summary>
+    ''' 内测版「获取更新（需要内测更新码）」：校验内测码通过后，下载内测版最新版本并替换重启。
+    ''' </summary>
+    Private Sub BetaGetUpdate()
+        '优先使用本机已保存的内测码；没有则让用户输入
+        Dim Code As String = Settings.Get(Of String)("BetaCode")
+        If Code = "" Then
+            Code = MyMsgBoxInput("获取内测更新",
+                "内测码由服务端管理员按设备码发放。" & vbCrLf &
+                "你的设备码：" & DeviceCode & vbCrLf & vbCrLf &
+                "校验通过后会下载内测版最新版本并重启。", "", HintText:="内测码", Button1:="获取更新")
+            If Code Is Nothing OrElse Code.Trim = "" Then Return
+            Code = Code.Trim()
+        End If
+        Hint("正在校验内测码……")
+        Dim Verified As Boolean = False
+        Dim ErrMsg As String = ""
+        Dim NewCode As String = Code
+        Dim Worker As New System.Threading.Thread(
+            Sub()
+                Try
+                    Dim Result = VerifyBetaCode(Code)
+                    If Result.Ok Then
+                        Verified = True
+                        If Result.VersionCode <= VersionCode Then
+                            ErrMsg = $"你已经是内测版最新版本（版本码 {VersionCode}），无需更新。"
+                        End If
+                    Else
+                        ErrMsg = If(Result.Message = "", "内测码无效或已被停用", Result.Message)
+                        '已保存的内测码失效：清空，下次重新输入
+                        Settings.Set("BetaCode", "")
+                    End If
+                Catch ex As Exception
+                    ErrMsg = If(IsNetworkIssue(ex), "连不上服务器，请检查网络后重试。", ex.Message)
+                End Try
+            End Sub)
+        Worker.IsBackground = True
+        Worker.Start()
+        Worker.Join()
+        If Not Verified Then
+            MyMsgBox(If(ErrMsg = "", "内测码校验失败", ErrMsg), "获取内测更新", IsWarn:=True)
+            Return
+        End If
+        Settings.Set("BetaCode", NewCode)
+        Hint("内测码校验通过，正在下载内测版最新版本……", HintType.Green)
+        RunInNewThread(
+            Sub()
+                If SwitchChannel("Beta") Then Return
+                Hint("内测版更新下载未完成，启动器保持当前版本", HintType.Blue)
+            End Sub, "获取内测更新")
     End Sub
     ''' <summary>
     ''' 启动器是否已经是最新版？
@@ -226,7 +282,7 @@ Public Class PageSetupSystem
         End Try
     End Sub
 
-    ''' <summary>内测版的界面限制：匿名上报强制开启且不能取消，自动更新与检查更新不可用。</summary>
+    ''' <summary>内测版的界面限制：匿名上报强制开启且不能取消，自动更新不可用；检查更新改为「获取更新（需要内测更新码）」。</summary>
     Private Sub ApplyBetaRestrictions()
         Try
             Settings.Set("SystemErrorReport", True)
@@ -241,9 +297,12 @@ Public Class PageSetupSystem
             CheckSystemSnapshotTest.IsEnabled = False
             CheckSystemSnapshotTest.ToolTip = "内测版已经是独立通道，不参与快照版测试。"
             ComboSystemUpdate.IsEnabled = False
-            BtnSystemUpdate.IsEnabled = False
-            BtnSystemUpdate.ToolTip = "内测版不提供检查更新。"
-            Logger.Info("内测版限制已应用：匿名上报强制开启，自动更新显示为关闭且不可修改，检查更新不可用")
+            '检查更新按钮在内测版改为「获取更新」：输入内测码校验通过后，更新到内测版最新版本
+            BtnSystemUpdate.IsEnabled = True
+            BtnSystemUpdate.Text = "获取更新（需要内测更新码）"
+            BtnSystemUpdate.ToolTip = "输入内测更新码，校验通过后会下载内测版最新版本并替换重启。" & vbCrLf &
+                                      "内测码由服务端管理员按设备码发放，你的设备码：" & DeviceCode
+            Logger.Info("内测版限制已应用：匿名上报强制开启，自动更新显示为关闭且不可修改，检查更新改为获取更新（需要内测更新码）")
         Catch ex As Exception
             Logger.Warn(ex, "应用内测版界面限制失败")
         End Try

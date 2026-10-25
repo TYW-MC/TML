@@ -4122,5 +4122,14 @@
  "正在下载基岩版 %VER%（约 1 GB，视网络情况可能需要几分钟）……": "Downloading Bedrock Edition %VER% (about 1 GB, may take a few minutes)…",
  "下载完成，正在安装基岩版 %VER%……": "Download complete, installing Bedrock Edition %VER%…",
  "基岩版 %VER% 安装完成！可以从开始菜单或本页面启动游戏。": "Bedrock Edition %VER% installed! You can start the game from the Start menu or this page.",
- "正在下载安装 %VER%，请稍候……": "Downloading and installing %VER%, please wait…"
+ "正在下载安装 %VER%，请稍候……": "Downloading and installing %VER%, please wait…",
+ "启动基岩版": "Launch Bedrock Edition",
+ "基岩版 正式版": "Bedrock Edition Release",
+ "基岩版 预览版": "Bedrock Edition Preview",
+ "（未安装）": " (not installed)",
+ "尚未安装基岩版%CHN%。是否前往下载页安装？": "Bedrock Edition %CHN% is not installed. Go to the download page to install it?",
+ "前往下载": "Go to Download",
+ "基岩版仅支持微软账户登录启动。请先在启动页选择「正版」登录方式并完成微软账户登录。": "Bedrock Edition only supports signing in with a Microsoft account. Please select the Microsoft (online) login method on the launch page and sign in first.",
+ "切换为正版登录": "Switch to Microsoft Login",
+ "GDK（需 LeviLauncher）": "GDK (needs LeviLauncher)"
 }

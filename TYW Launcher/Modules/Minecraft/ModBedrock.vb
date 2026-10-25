@@ -126,7 +126,6 @@ Public Module ModBedrock
                     .ReleaseDate = If(Ver("Date")?.ToString(), ""),
                     .Id = If(Ver("ID")?.ToString(), "")
                 }
-                If Entry.BuildType <> "UWP" Then Continue For 'GDK 包无法用 Add-AppxPackage 安装
                 Dim Vars As JArray = TryCast(Ver("Variations"), JArray)
                 If Vars Is Nothing Then Continue For
                 For Each VarToken As JToken In Vars
@@ -136,19 +135,23 @@ Public Module ModBedrock
                     Dim Status As Integer = Val(If(Var("ArchivalStatus")?.ToString(), "0"))
                     Dim Metas As JArray = TryCast(Var("MetaData"), JArray)
                     If Arch = "" OrElse Metas Is Nothing OrElse Status < 2 Then Continue For
-                    'MetaData 中 UWP 类型为 Update ID（GUID），跳过可能的 URL
-                    Dim UpdateId As String = Nothing
+                    'UWP 条目的 MetaData 为 Update ID（GUID），GDK 条目为直链 URL
+                    Dim UpdateIdOrUrl As String = Nothing
                     For Each Meta As JToken In Metas
                         Dim S As String = Meta?.ToString()
-                        If S.StartsWithF("http") Then Continue For
+                        If S Is Nothing OrElse S = "" Then Continue For
+                        If S.StartsWithF("http") Then
+                            UpdateIdOrUrl = S
+                            Exit For
+                        End If
                         If S.Length = 36 AndAlso S.Count(Function(c) c = "-"c) = 4 Then
-                            UpdateId = S
+                            UpdateIdOrUrl = S
                             Exit For
                         End If
                     Next
-                    If UpdateId Is Nothing Then Continue For
+                    If UpdateIdOrUrl Is Nothing Then Continue For
                     Dim Md5 As String = If(Var("MD5")?.ToString(), "").ToLower
-                    Entry.Variations(Arch) = New KeyValuePair(Of String, String)(UpdateId, Md5)
+                    Entry.Variations(Arch) = New KeyValuePair(Of String, String)(UpdateIdOrUrl, Md5)
                 Next
                 If Entry.Variations.Any Then Result.Add(Entry)
             Catch ex As Exception
@@ -239,17 +242,19 @@ Public Module ModBedrock
 
     ''' <summary>
     ''' 下载指定版本的基岩版安装包到本地并返回文件路径。
+    ''' UWP 版为 .appx（Update ID 换直链），GDK 版为 .msixvc（mcappx 直链）。
     ''' 必须在工作线程调用。
     ''' </summary>
     Public Function BedrockDownload(Entry As BedrockVersionEntry, Optional Arch As String = Nothing, Optional LoaderToSyncProgress As LoaderBase = Nothing) As String
         If Arch Is Nothing Then Arch = BedrockBestArch()
-        Dim UpdateId = Entry.GetUpdateId(Arch)
-        If UpdateId Is Nothing Then Throw New Exception($"该版本不提供 {Arch} 架构的安装包")
-        Dim Url = BedrockGetDownloadUrl(UpdateId)
+        Dim UpdateIdOrUrl = Entry.GetUpdateId(Arch)
+        If UpdateIdOrUrl Is Nothing Then Throw New Exception($"该版本不提供 {Arch} 架构的安装包")
+        Dim IsGdk As Boolean = UpdateIdOrUrl.StartsWithF("http")
+        Dim Url As String = If(IsGdk, UpdateIdOrUrl, BedrockGetDownloadUrl(UpdateIdOrUrl))
         Directory.CreateDirectory(BedrockDownloadPath)
-        Dim FileName As String = $"Minecraft-{Entry.Version}-{Arch}.appx"
+        Dim FileName As String = $"Minecraft-{Entry.Version}-{Arch}.{If(IsGdk, "msixvc", "appx")}"
         Dim LocalPath As String = BedrockDownloadPath & FileName
-        Logger.Info($"[Bedrock] 开始下载基岩版 {Entry.Version}（{Arch}）：{Url}")
+        Logger.Info($"[Bedrock] 开始下载基岩版 {Entry.Version}（{Arch}，{If(IsGdk, "GDK", "UWP")}）：{Url}")
         '通过 FileChecker 让下载引擎自动进行 MD5 校验
         Dim Expected = Entry.GetMd5(Arch)
         Dim Checker As FileChecker = If(Expected = "", New FileChecker, New FileChecker With {.Hash = Expected})
@@ -260,14 +265,20 @@ Public Module ModBedrock
 
     ''' <summary>
     ''' 使用 PowerShell 的 Add-AppxPackage 安装基岩版。
+    ''' 带 -ForceUpdateFromAnyVersion，允许覆盖同版本重装与降级（否则会报 0x80073CFB）。
     ''' 必须在工作线程调用，可能耗时较长。
     ''' </summary>
     Public Sub BedrockInstallAppx(Path As String)
         If Not File.Exists(Path) Then Throw New FileNotFoundException("安装包不存在", Path)
         Logger.Info($"[Bedrock] 开始安装：{Path}")
+        '先让 PowerShell 把控制台输出切到 UTF-8，避免中文错误信息变成乱码
+        Dim Command As String =
+            "[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false); " &
+            $"Add-AppxPackage -Path '{Path}' -ForceUpdateFromAnyVersion; " &
+            "exit $LASTEXITCODE"
         Dim Psi As New ProcessStartInfo With {
             .FileName = "powershell.exe",
-            .Arguments = $"-NoProfile -NonInteractive -Command ""Add-AppxPackage -Path '{Path}'""",
+            .Arguments = $"-NoProfile -NonInteractive -Command ""{Command}""",
             .UseShellExecute = False,
             .CreateNoWindow = True,
             .RedirectStandardOutput = True,
@@ -292,7 +303,71 @@ Public Module ModBedrock
 
 #End Region
 
+#Region "公共下载安装流程"
+
+    ''' <summary>正在下载安装的版本号（跨页面共享防重复），Nothing 表示空闲。</summary>
+    Public InstallingBedrockVersion As String = Nothing
+
+    ''' <summary>
+    ''' 下载并安装指定基岩版版本。必须在工作线程调用。
+    ''' 防重复：若有任务进行中则提示并返回 False。
+    ''' </summary>
+    Public Function BedrockDownloadAndInstall(Entry As BedrockVersionEntry) As Boolean
+        If InstallingBedrockVersion IsNot Nothing Then
+            Hint($"正在下载安装基岩版 {InstallingBedrockVersion}，请稍候……", HintType.Blue)
+            Return False
+        End If
+        InstallingBedrockVersion = Entry.Version
+        Try
+            Dim IsGdk As Boolean = Entry.BuildType = "GDK"
+            Hint($"正在获取基岩版 {Entry.Version} 的下载直链……", HintType.Blue)
+            Dim Arch = BedrockBestArch()
+            If Entry.GetUpdateId(Arch) Is Nothing Then Arch = Entry.Variations.Keys.First()
+            Hint($"正在下载基岩版 {Entry.Version}（约 1 GB，视网络情况可能需要几分钟）……", HintType.Blue)
+            Dim PkgPath = BedrockDownload(Entry, Arch)
+            If IsGdk Then
+                'GDK 版（1.21.120.21+）是 MSIXVC 包，无法用系统组件安装，需要 LeviLauncher 等工具加载
+                Hint($"GDK 版 {Entry.Version} 下载完成。", HintType.Green)
+                RunInUiWait(Sub()
+                                If MyMsgBox($"GDK 版本 {Entry.Version} 已下载完成。" & vbCrLf &
+                                            "GDK 版无法通过系统组件直接安装，需要使用开源工具 LeviLauncher 加载安装（需要微软账户拥有基岩版权限、系统已安装 Gaming Services）。" & vbCrLf & vbCrLf &
+                                            "是否打开安装包所在文件夹？", "GDK 版本下载完成", "打开文件夹", "完成") = 1 Then
+                                    StartProcess("explorer.exe", $"/select,""{PkgPath}""")
+                                End If
+                            End Sub)
+                Return False
+            End If
+            Hint($"下载完成，正在安装基岩版 {Entry.Version}……", HintType.Blue)
+            BedrockInstallAppx(PkgPath)
+            Hint($"基岩版 {Entry.Version} 安装完成！可以从开始菜单或启动页启动游戏。", HintType.Green)
+            Return True
+        Catch ex As Exception
+            Logger.Error(ex, "下载或安装基岩版失败")
+            Hint("下载或安装失败：" & ex.Message, HintType.Red)
+            Return False
+        Finally
+            InstallingBedrockVersion = Nothing
+        End Try
+    End Function
+
+#End Region
+
 #Region "已安装检测与启动"
+
+    ''' <summary>
+    ''' 比较两个 "." 分隔的版本号大小。
+    ''' 返回正数表示 A 更新，负数表示 B 更新，0 表示相同。
+    ''' </summary>
+    Public Function BedrockVersionCompare(A As String, B As String) As Integer
+        If A = B Then Return 0
+        Dim Pa = A.Split("."c), Pb = B.Split("."c)
+        For i As Integer = 0 To Math.Max(Pa.Length, Pb.Length) - 1
+            Dim Va As Long = If(i < Pa.Length, Val(Pa(i)), 0)
+            Dim Vb As Long = If(i < Pb.Length, Val(Pb(i)), 0)
+            If Va <> Vb Then Return If(Va > Vb, 1, -1)
+        Next
+        Return 0
+    End Function
 
     ''' <summary>
     ''' 查询已安装的基岩版版本号，未安装则返回 Nothing。

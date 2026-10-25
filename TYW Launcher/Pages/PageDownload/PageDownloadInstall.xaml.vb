@@ -39,7 +39,78 @@ Public Class PageDownloadInstall
         TextSelectName.ValidateRules = New ObjectModel.Collection(Of Validate) From {New ValidateFolderName(McFolderSelected & "versions")}
         TextSelectName.Validate()
         ReloadSelected()
+        '基岩版栏目（仅原版安装页本体；子类页面不显示）
+        If TypeOf Me Is PageDownloadInstall AndAlso Not BedrockCardLoaded AndAlso Not RestrictMcDownload Then BedrockCardLoad()
     End Sub
+
+#Region "基岩版栏目"
+
+    ''' <summary>是否已启动基岩版栏目加载。</summary>
+    Private BedrockCardLoaded As Boolean = False
+
+    ''' <summary>
+    ''' 在后台加载基岩版版本列表，完成后往 PanMinecraft 追加「基岩版 正式版」「基岩版 预览版」两张栏目卡片。
+    ''' </summary>
+    Private Sub BedrockCardLoad()
+        BedrockCardLoaded = True
+        RunInNewThread(Sub()
+                        Try
+                            ModBedrock.BedrockVersionListLoad(False)
+                            RunInUi(AddressOf BedrockCardBuild)
+                        Catch ex As Exception
+                            Logger.Warn(ex, "加载基岩版列表失败，原版下载页基岩版栏目不显示")
+                        End Try
+                    End Sub, "Bedrock Install Card")
+    End Sub
+
+    ''' <summary>构建基岩版栏目卡片（UI 线程）。</summary>
+    Private Sub BedrockCardBuild()
+        Try
+            If ModBedrock.VersionList Is Nothing OrElse Not ModBedrock.VersionList.Any Then Return
+            Dim BestArch As String = ModBedrock.BedrockBestArch()
+            Dim Channels = {New KeyValuePair(Of String, Boolean)("基岩版 正式版", False),
+                            New KeyValuePair(Of String, Boolean)("基岩版 预览版", True)}
+            For Each Channel In Channels
+                Dim List As List(Of BedrockVersionEntry) = ModBedrock.BedrockVersionFilter(Channel.Value)
+                If Not List.Any Then Continue For
+                Dim Card As New MyCard With {.Title = Channel.Key, .Margin = New Thickness(0, 0, 0, 15)}
+                Dim Stack As New StackPanel With {.Margin = New Thickness(20, MyCard.SwapedHeight, 18, 0), .VerticalAlignment = VerticalAlignment.Top, .RenderTransform = New TranslateTransform(0, 0)}
+                Card.Children.Add(Stack)
+                Card.SwapControl = Stack
+                For Each Entry In List.Take(50) '每栏目最多 50 个，完整列表在「基岩版」独立页
+                    Dim Item As New MyListItem With {
+                        .Title = Entry.Version,
+                        .Type = MyListItem.CheckType.Clickable,
+                        .Tag = Entry,
+                        .MinPaddingRight = 50,
+                        .Height = 38,
+                        .IsScaleAnimationEnabled = False
+                    }
+                    Dim InfoParts As New List(Of String)
+                    If Entry.ReleaseDate <> "" Then InfoParts.Add(Entry.ReleaseDate)
+                    If Entry.BuildType = "GDK" Then InfoParts.Add("GDK（需 LeviLauncher）")
+                    If Entry.Variations.ContainsKey(BestArch) Then InfoParts.Add(BestArch) Else InfoParts.Add(Entry.Variations.Keys.First())
+                    Item.Info = String.Join("　", InfoParts)
+                    AddHandler Item.Click, Sub(sender As Object, e As MouseEventArgs)
+                                               Dim Clicked As BedrockVersionEntry = CType(CType(sender, MyListItem).Tag, BedrockVersionEntry)
+                                               RunInNewThread(Sub()
+                                                                  If ModBedrock.BedrockDownloadAndInstall(Clicked) Then
+                                                                      '安装成功后刷新独立基岩版页的已安装状态（如果它已创建）
+                                                                      If FrmDownloadBedrock IsNot Nothing Then FrmDownloadBedrock.RefreshInstalledPublic()
+                                                                  End If
+                                                              End Sub, "Bedrock Download")
+                                           End Sub
+                    Stack.Children.Add(Item)
+                Next
+                Card.IsSwapped = True
+                PanMinecraft.Children.Add(Card)
+            Next
+        Catch ex As Exception
+            Logger.Error(ex, "构建基岩版栏目失败")
+        End Try
+    End Sub
+
+#End Region
 
 #Region "页面切换"
 

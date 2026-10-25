@@ -45,6 +45,11 @@ Public Class PageDownloadBedrock
         ModBedrock.BedrockLaunch(Not CBool(BtnLaunch.Tag))
     End Sub
 
+    ''' <summary>供其他页面调用：刷新已安装检测。</summary>
+    Public Sub RefreshInstalledPublic()
+        RefreshInstalled()
+    End Sub
+
 #End Region
 
 #Region "版本列表"
@@ -129,6 +134,7 @@ Public Class PageDownloadBedrock
             }
             Dim InfoParts As New List(Of String)
             If Entry.ReleaseDate <> "" Then InfoParts.Add(Entry.ReleaseDate)
+            If Entry.BuildType = "GDK" Then InfoParts.Add("GDK（需 LeviLauncher）")
             If Entry.Type = "Beta" Then InfoParts.Add(ModLang.T("旧测试版"))
             If Entry.Variations.ContainsKey(BestArch) Then
                 InfoParts.Add(BestArch)
@@ -148,35 +154,10 @@ Public Class PageDownloadBedrock
 
 #Region "下载与安装"
 
-    ''' <summary>
-    ''' 正在下载安装的版本版本号，用于防止重复点击。
-    ''' </summary>
-    Private InstallingVersion As String = Nothing
-
     Private Sub DownloadRun(Entry As BedrockVersionEntry)
-        If InstallingVersion IsNot Nothing Then
-            Hint(ModLang.T("正在下载安装 %VER%，请稍候……").Replace("%VER%", InstallingVersion), HintType.Blue)
-            Return
-        End If
-        InstallingVersion = Entry.Version
         RunInNewThread(Sub()
-                           Try
-                               Hint(ModLang.T("正在获取基岩版 %VER% 的下载直链……").Replace("%VER%", Entry.Version), HintType.Blue)
-                               Dim Arch As String = ModBedrock.BedrockBestArch()
-                               If Entry.GetUpdateId(Arch) Is Nothing Then Arch = Entry.Variations.Keys.First()
-                               Hint(ModLang.T("正在下载基岩版 %VER%（约 1 GB，视网络情况可能需要几分钟）……").Replace("%VER%", Entry.Version), HintType.Blue)
-                               Dim Path As String = ModBedrock.BedrockDownload(Entry, Arch)
-                               Hint(ModLang.T("下载完成，正在安装基岩版 %VER%……").Replace("%VER%", Entry.Version), HintType.Blue)
-                               ModBedrock.BedrockInstallAppx(Path)
-                               Hint(ModLang.T("基岩版 %VER% 安装完成！可以从开始菜单或本页面启动游戏。").Replace("%VER%", Entry.Version), HintType.Green)
-                               RefreshInstalled()
-                           Catch ex As Exception
-                               Logger.Error(ex, "下载或安装基岩版失败")
-                               Hint("下载或安装失败：" & ex.Message, HintType.Red)
-                           Finally
-                               InstallingVersion = Nothing
-                           End Try
-                       End Sub)
+                           If ModBedrock.BedrockDownloadAndInstall(Entry) Then RefreshInstalled()
+                       End Sub, "Bedrock Download")
     End Sub
 
 #End Region
