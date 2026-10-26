@@ -311,6 +311,62 @@ Public Module ModMinecraft
         ''' </summary>
         Public DisplayType As McInstanceCardType = McInstanceCardType.Auto
         ''' <summary>
+        ''' 是否为基岩版实例（由 TYW Launcher 安装，记录位于 versions\版本名\）。
+        ''' </summary>
+        Public ReadOnly Property IsBedrock As Boolean
+            Get
+                Try
+                    Dim Token As JToken = JsonObject("bedrock")
+                    If Token Is Nothing Then Return False
+                    If Token.Type = JTokenType.Boolean Then Return Token.Value(Of Boolean)()
+                    Return Token.ToString().ToLower = "true"
+                Catch ex As Exception
+                    Return False
+                End Try
+            End Get
+        End Property
+
+        ''' <summary>
+        ''' 读取基岩版记录中的字段，失败时返回空字符串。
+        ''' </summary>
+        Private Function BedrockInfo(Key As String) As String
+            Try
+                Dim Token As JToken = JsonObject(Key)
+                Return If(Token Is Nothing, "", Token.ToString())
+            Catch ex As Exception
+                Return ""
+            End Try
+        End Function
+
+        ''' <summary>
+        ''' 基岩版渠道：retail（正式版）或 preview（预览版）。
+        ''' </summary>
+        Public ReadOnly Property BedrockChannel As String
+            Get
+                Return If(BedrockInfo("bedrockChannel") = "", "retail", BedrockInfo("bedrockChannel"))
+            End Get
+        End Property
+
+        ''' <summary>
+        ''' 基岩版版本号，如 1.21.114。
+        ''' </summary>
+        Public ReadOnly Property BedrockVersionText As String
+            Get
+                Dim Text As String = BedrockInfo("bedrockVersion")
+                Return If(Text = "", Name, Text)
+            End Get
+        End Property
+
+        ''' <summary>
+        ''' 基岩版构建类型：UWP 或 GDK。
+        ''' </summary>
+        Public ReadOnly Property BedrockBuildType As String
+            Get
+                Return If(BedrockInfo("bedrockBuildType") = "", "UWP", BedrockInfo("bedrockBuildType"))
+            End Get
+        End Property
+
+        ''' <summary>
         ''' 该版本是否可以安装 Mod。
         ''' </summary>
         Public ReadOnly Property Modable As Boolean
@@ -594,6 +650,11 @@ Recheck:
                 Info = "未找到版本 " & Name
                 Return False
             End If
+            '基岩版实例：不检查 Java 版的 mainClass 等结构
+            If IsBedrock Then
+                State = McInstanceState.Original
+                Return True
+            End If
             '确认 Json 可用性
             Try
                 If JsonObject("mainClass") Is Nothing Then Throw New Exception("版本 JSON 中没有 mainClass 项！") '这里也会触发 JsonObject 的 Get 事件
@@ -640,6 +701,11 @@ Recheck:
             Try
                 '检查版本，若出错则跳过数据确定阶段
                 If Not Check() Then GoTo ExitDataLoad
+                '基岩版实例：跳过 Java 版本的分类与版本号识别
+                If IsBedrock Then
+                    State = McInstanceState.Original
+                    GoTo ExitDataLoad
+                End If
 #Region "确定版本分类"
                 Select Case Version.VanillaName '在获取 Version.Original 对象时会完成它的加载
                     Case "Unknown"
@@ -738,14 +804,20 @@ ExitDataLoad:
             Dim CustomInfo As String = ReadIni(PathVersion & "TYW Launcher\Setup.ini", "CustomInfo")
             If CustomInfo <> "" Then
                 Info = CustomInfo
-            Else
-                Info = VersionDisplayName()
-                If State = McInstanceState.Fool Then
-                    Info = GetMcFoolName(Version.VanillaName)
-                ElseIf State <> McInstanceState.Error Then
-                    If Settings.Get(Of Integer)("VersionServerLogin", Instance:=Me) = 3 Then Info += ", 统一通行证验证"
-                    If Settings.Get(Of Integer)("VersionServerLogin", Instance:=Me) = 4 Then Info += ", Authlib 验证"
-                End If
+                Return
+            End If
+            '基岩版实例
+            If IsBedrock Then
+                Info = If(BedrockChannel = "preview", "基岩版 预览版 ", "基岩版 ") & BedrockVersionText
+                If BedrockBuildType = "GDK" Then Info += "（GDK）"
+                Return
+            End If
+            Info = VersionDisplayName()
+            If State = McInstanceState.Fool Then
+                Info = GetMcFoolName(Version.VanillaName)
+            ElseIf State <> McInstanceState.Error Then
+                If Settings.Get(Of Integer)("VersionServerLogin", Instance:=Me) = 3 Then Info += ", 统一通行证验证"
+                If Settings.Get(Of Integer)("VersionServerLogin", Instance:=Me) = 4 Then Info += ", Authlib 验证"
             End If
         End Sub
         ''' <summary>

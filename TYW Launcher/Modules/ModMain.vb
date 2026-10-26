@@ -400,7 +400,6 @@ EndHint:
     Public FrmDownloadDataPack As PageDownloadDataPack
     Public FrmDownloadShader As PageDownloadShader
     Public FrmDownloadResourcePack As PageDownloadResourcePack
-    Public FrmDownloadBedrock As PageDownloadBedrock
 
     '设置页面声明
     Public FrmSetupLeft As PageSetupLeft

@@ -9,7 +9,7 @@ Public Class Application
             '核心初始化
             MeloongCore.Main.Init("TYW Launcher")
             MeloongCore.Wpf.Main.Init()
-            If Not (e.Args.Contains("--update") OrElse e.Args.Contains("--gpu") OrElse e.Args.Contains("--memory")) Then '若是通过命令行调用，则不检查单例、不轮换日志（#9137）
+            If Not (e.Args.Contains("--update") OrElse e.Args.Contains("--gpu") OrElse e.Args.Contains("--memory") OrElse e.Args.Contains("--deepmem")) Then '若是通过命令行调用，则不检查单例、不轮换日志（#9137）
                 WaitingMutex(e)
                 Logger.Instance = New PclLogger With {.logFolder = Paths.BaseThenName, .MinLevel = If(ModeDebug, LogLevel.Trace, LogLevel.Info)}
             End If
@@ -29,8 +29,8 @@ Public Class Application
             End Try
             '提升主线程优先级
             Thread.CurrentThread.Priority = ThreadPriority.Highest
-            '执行开发版测试
-            If BuildType = BuildTypes.Debug Then
+            '执行开发版测试（提权深度内存优化的自启进程跳过，尽快完成）
+            If BuildType = BuildTypes.Debug AndAlso Not e.Args.Contains("--deepmem") Then
                 Try
                     ModDevelop.Start()
                 Catch ex As Exception
@@ -64,6 +64,19 @@ Public Class Application
                     Catch ex As Exception
                         Environment.Exit(ProcessReturnValues.Fail)
                     End Try
+                ElseIf e.Args(0) = "--deepmem" Then
+                    '提权深度内存优化（由启动器以管理员权限自启）：整理全系统高内存进程后退出
+                    Dim Count As Integer = -1
+                    Try
+                        Count = PageOtherTest.DeepOptimizeAllProcesses()
+                    Catch
+                        Count = -1
+                    End Try
+                    Try
+                        If e.Args.Length > 1 Then IO.File.WriteAllText(e.Args(1).Trim(""""), Count.ToString(), System.Text.Encoding.UTF8)
+                    Catch
+                    End Try
+                    Environment.Exit(ProcessReturnValues.TaskDone)
                 ElseIf e.Args(0) = "--memory" Then
                     '内存优化
                     Dim Ram = My.Computer.Info.AvailablePhysicalMemory

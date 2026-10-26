@@ -57,6 +57,11 @@
             FrmLaunchLeft.RefreshButtonsUI()
             FrmLaunchLeft.RefreshPage(False, False)
         End If
+        '基岩版实例：与 Java 版共用启动按钮，但走基岩版的启动流程
+        If McInstanceSelected IsNot Nothing AndAlso McInstanceSelected.IsBedrock Then
+            If FrmLaunchLeft IsNot Nothing Then FrmLaunchLeft.BedrockLaunchSelected()
+            Return False
+        End If
         If McInstanceSelected IsNot Nothing AndAlso McInstanceLock.IsLocked(McInstanceSelected) Then
             Hint($"版本 {McInstanceSelected.Name} 正在被修改，请稍后再启动！", HintType.Red)
             Return False
@@ -134,7 +139,7 @@
             '内存优化
             Select Case Settings.Get(Of Integer)("VersionRamOptimize", Instance:=McInstanceSelected)
                 Case 0 '全局
-                    If Settings.Get(Of Boolean)("LaunchArgumentRam") Then '使用全局设置
+                    If Settings.Get(Of Boolean)("LaunchArgumentRam") OrElse Settings.Get(Of Boolean)("LaunchDeepRamOptimize") Then '使用全局设置（深度优化开启即视为开启优化）
                         CType(Loaders(2), LoaderCombo(Of String)).Block = False
                         Loaders.Insert(3, New LoaderTask(Of Integer, Integer)("内存优化", AddressOf McLaunchMemoryOptimize) With {.ProgressWeight = 30})
                     End If
@@ -210,11 +215,19 @@ NextInner:
 #Region "内存优化"
 
     Private Sub McLaunchMemoryOptimize(Loader As LoaderTask(Of Integer, Integer))
-        McLaunchLog("内存优化开始")
+        '深度优化需要管理员权限（UAC），普通优化不需要
+        Dim IsDeep As Boolean = Settings.Get(Of Boolean)("LaunchDeepRamOptimize")
+        McLaunchLog(If(IsDeep, "深度内存优化开始（需要管理员权限）", "内存优化开始"))
         Dim Finished As Boolean = False
         RunInNewThread(
         Sub()
-            PageOtherTest.MemoryOptimize(False)
+            If IsDeep Then
+                '提权深度优化：以管理员权限整理全系统高内存进程（用户拒绝授权时只清理启动器自身，不阻塞启动）
+                PageOtherTest.DeepMemoryOptimize(False)
+            Else
+                '普通内存优化：不需要任何权限
+                PageOtherTest.MemoryOptimize(False)
+            End If
             Finished = True
         End Sub, "Launch Memory Optimize")
         Do While Not Finished AndAlso Not Loader.IsCanceled
@@ -1867,8 +1880,10 @@ NextInstance:
             '1.11 ~ 12：zh_cn 时正常，zh_CN 时虽然显示了中文但语言设置会错误地显示选择英文
             '1.13+    ：zh_cn 时正常，zh_CN 时自动切换为英文
             Dim CurrentLang As String = ReadIni(SetupFileAddress, "lang", "none")
+            '★ 「自动设置游戏语言」勾选时跟随启动器当前语言（中文→zh_cn、English→en_us、日本語→ja_jp…），
+            '  而非固定中文；未勾选时保持原有的 en_us 行为。
             Dim RequiredLang As String = If(CurrentLang = "none" OrElse Not DirectoryUtils.Exists(McInstanceSelected.PathIndie & "saves"), '#3844，整合包可能已经自带了 options.txt
-                If(Settings.Get(Of Boolean)("ToolHelpChinese"), "zh_cn", "en_us"), CurrentLang.Lower)
+                If(Settings.Get(Of Boolean)("ToolHelpChinese"), ModLang.GameLang, "en_us"), CurrentLang.Lower)
             If Not McInstanceSelected.Version.Valid OrElse McInstanceSelected.Version.Vanilla.Major <= 10 Then
                 '将最后两位改为大写，前面的部分保留
                 RequiredLang = RequiredLang.Substring(0, RequiredLang.Length - 2) & RequiredLang.Substring(RequiredLang.Length - 2).Upper

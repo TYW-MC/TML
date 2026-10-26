@@ -836,72 +836,33 @@ ExitRefresh:
 
 #Region "基岩版启动"
 
-    ''' <summary>「启动基岩版」按钮（运行期创建，见 BuildBedrockButton）。</summary>
-    Private BedrockButton As MyButton = Nothing
-    ''' <summary>是否已经插入过基岩版按钮行（避免重复加载时重复插入）。</summary>
-    Private BedrockRowAdded As Boolean = False
-
     ''' <summary>
-    ''' 在「启动游戏」按钮下面插入「启动基岩版」按钮（版本选择行的上面一行）。
+    ''' 启动当前选中的基岩版实例。基岩版与 Java 版共用「启动游戏」按钮，由启动入口统一调用。
     ''' </summary>
-    Private Sub BuildBedrockButton() Handles Me.Loaded
-        If BedrockRowAdded Then Return
-        BedrockRowAdded = True
-        Try
-            Dim Host As Grid = CType(BtnVersion.Parent, Grid)
-            If Host Is Nothing Then Return
-            '在第 3 行（版本选择行）前插一行，后面的控件整体下移
-            Host.RowDefinitions.Insert(3, New RowDefinition With {.Height = GridLength.Auto})
-            For Each Child As UIElement In Host.Children
-                Dim Row = Grid.GetRow(Child)
-                If Row >= 3 Then Grid.SetRow(Child, Row + 1)
-            Next
-            BedrockButton = New MyButton With {.Text = "启动基岩版", .Height = 35, .Margin = New Thickness(0, 10, 10, 0)}
-            Grid.SetRow(BedrockButton, 3)
-            Grid.SetColumn(BedrockButton, 2)
-            Grid.SetColumnSpan(BedrockButton, 2)
-            AddHandler BedrockButton.Click, AddressOf BedrockButton_Click
-            Host.Children.Add(BedrockButton)
-        Catch ex As Exception
-            Logger.Warn(ex, "创建基岩版启动按钮失败")
-        End Try
-    End Sub
-
-    ''' <summary>点击「启动基岩版」：检测已安装版本后弹出选择菜单。</summary>
-    Private Sub BedrockButton_Click(sender As Object, e As EventArgs)
-        If McLaunchLoader.State = LoadState.Loading Then Return
-        Hint("正在检测已安装的基岩版……")
+    Public Sub BedrockLaunchSelected()
+        Dim Instance As McInstance = McInstanceSelected
+        If Instance Is Nothing OrElse Not Instance.IsBedrock Then Return
+        If Instance.BedrockBuildType = "GDK" Then
+            MyMsgBox("GDK 版基岩版无法由启动器直接启动。" & vbCrLf & vbCrLf &
+                     "请使用 LeviLauncher 加载已下载的 GDK 安装包，安装包位于该版本的 bedrock 文件夹中。",
+                     "启动基岩版", "知道了")
+            Return
+        End If
+        Dim Preview As Boolean = Instance.BedrockChannel = "preview"
+        Hint($"正在检测已安装的基岩版 {Instance.BedrockVersionText}……")
         RunInNewThread(
             Sub()
-                Dim Retail = ModBedrock.BedrockGetInstalled(False)
-                Dim Preview = ModBedrock.BedrockGetInstalled(True)
-                RunInUi(Sub() ShowBedrockMenu(Retail, Preview))
+                Dim Installed As String = ModBedrock.BedrockGetInstalled(Preview)
+                RunInUi(Sub() BedrockLaunchCheck(Preview, Installed))
             End Sub, "Bedrock Detect Launch")
     End Sub
 
-    ''' <summary>弹出基岩版启动菜单：正式版 / 预览版，显示已安装版本号。</summary>
-    Private Sub ShowBedrockMenu(Retail As String, Preview As String)
-        If BedrockButton Is Nothing Then Return
-        Dim Menu As New ContextMenu
-        Dim RetailHeader As String = ModLang.T("基岩版 正式版") & If(Retail Is Nothing, ModLang.T("（未安装）"), "　" & Retail)
-        Dim ItemRetail As New MyMenuItem With {.Header = RetailHeader}
-        AddHandler ItemRetail.Click, Sub(ss, ee) BedrockLaunchClick(False, Retail)
-        Menu.Items.Add(ItemRetail)
-        Dim PreviewHeader As String = ModLang.T("基岩版 预览版") & If(Preview Is Nothing, ModLang.T("（未安装）"), "　" & Preview)
-        Dim ItemPreview As New MyMenuItem With {.Header = PreviewHeader}
-        AddHandler ItemPreview.Click, Sub(ss, ee) BedrockLaunchClick(True, Preview)
-        Menu.Items.Add(ItemPreview)
-        Menu.PlacementTarget = BedrockButton
-        Menu.Placement = Primitives.PlacementMode.Top
-        Menu.IsOpen = True
-    End Sub
-
-    ''' <summary>启动所选的基岩版渠道；未安装则引导下载，未登录微软账户则要求登录。</summary>
-    Private Sub BedrockLaunchClick(Preview As Boolean, Installed As String)
+    ''' <summary>检查安装与登录状态后启动指定的基岩版渠道。</summary>
+    Private Sub BedrockLaunchCheck(Preview As Boolean, Installed As String)
         If Installed Is Nothing Then
             If MyMsgBox(ModLang.T("尚未安装基岩版%CHN%。是否前往下载页安装？").Replace("%CHN%", If(Preview, ModLang.T("预览版"), ModLang.T("正式版"))),
                         ModLang.T("启动基岩版"), ModLang.T("前往下载"), ModLang.T("取消")) = 1 Then
-                FrmMain.PageChange(FormMain.PageType.Download, FormMain.PageSubType.DownloadBedrock)
+                FrmMain.PageChange(FormMain.PageType.Download, FormMain.PageSubType.DownloadInstall)
             End If
             Return
         End If

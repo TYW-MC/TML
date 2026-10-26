@@ -57,11 +57,52 @@ Module ModBeta
     End Function
 
     ''' <summary>
+    ''' 把设备码 + 单次更新码送到服务端校验（GET /betaupdate）。
+    ''' 服务端校验通过会立即把更新码标记为已用；客户端更新完成后再上报 done=1 删除记录。
+    ''' 已是最新版本时服务端不消耗更新码。
+    ''' </summary>
+    Friend Function VerifyBetaUpdateCode(Code As String) As BetaResult
+        Dim Url As String = ServerAddress & "betaupdate?ident=" & Uri.EscapeDataString(DeviceCode) &
+                            "&code=" & Uri.EscapeDataString(If(Code, "").Trim) &
+                            "&ver=" & VersionCode
+        Dim Raw As String = NetRequestByLoader(Url, 12000)
+        Dim Json As JObject = JObject.Parse(Raw)
+        Dim R As New BetaResult With {
+            .Ok = CBool(If(Json("ok") IsNot Nothing, Json("ok"), False)),
+            .Message = If(Json("msg") Is Nothing, "", Json("msg").ToString),
+            .VersionCode = If(Json("version_code") Is Nothing, 0, CInt(Json("version_code")))}
+        Return R
+    End Function
+
+    ''' <summary>
+    ''' 内测版更新完成后上报服务端（GET /betaupdate?...&amp;done=1）：删除已用的更新码记录。
+    ''' 尽力而为：失败只写日志，不影响更新流程。
+    ''' </summary>
+    Friend Sub ReportBetaUpdateDone(Code As String)
+        Try
+            Dim Url As String = ServerAddress & "betaupdate?ident=" & Uri.EscapeDataString(DeviceCode) &
+                                "&code=" & Uri.EscapeDataString(If(Code, "").Trim) & "&done=1"
+            NetRequestByLoader(Url, 8000)
+            Logger.Info("内测版更新完成已上报服务端，更新码记录已删除")
+        Catch ex As Exception
+            Logger.Warn(ex, "内测版更新完成上报失败（不影响更新，服务端记录可由管理员手动删除）")
+        End Try
+    End Sub
+
+    ''' <summary>
     ''' 下载指定通道的启动器并替换重启（Release / Snapshot / Beta）。
     ''' 用于内测版体验开关、取消内测、快照开关切换时的程序本体替换。
+    ''' OnDownloaded：下载校验完成、即将替换重启前回调（用于内测版更新完成上报）。
+    ''' Ident / Key：下载内测版程序时附带的服务端凭据（设备码 + 内测资格码或单次更新码）；
+    ''' 服务端会校验，缺失或无效会 403 拒绝下载。
     ''' </summary>
-    Friend Function SwitchChannel(Channel As String) As Boolean
+    Friend Function SwitchChannel(Channel As String, Optional OnDownloaded As Action = Nothing,
+                                  Optional Ident As String = "", Optional Key As String = "") As Boolean
         Dim Url As String = ServerAddress & ChannelExeFile(Channel)
+        If Channel = "Beta" AndAlso Key <> "" Then
+            Url &= "?ident=" & Uri.EscapeDataString(If(Ident, DeviceCode)) &
+                   "&key=" & Uri.EscapeDataString(Key)
+        End If
         Dim TargetName As String = ChannelDisplay(Channel)
         Dim UpdatePath As String = PathTemp & "TYW Launcher\Update.exe"
         FileUtils.Delete(UpdatePath)
@@ -108,6 +149,14 @@ Module ModBeta
             Return False
         End If
         Hint(TargetName & "下载完成，即将替换并重启……", HintType.Green)
+        '更新完成回调（如内测版更新码的上报删除）：趁旧进程还在，先把结果告诉服务端
+        If OnDownloaded IsNot Nothing Then
+            Try
+                OnDownloaded()
+            Catch ex As Exception
+                Logger.Warn(ex, "更新完成回调失败")
+            End Try
+        End If
         '启动替换进程：--update 旧进程PID 旧文件 新文件 是否重启
         Dim NewProcess As New ProcessStartInfo(UpdatePath) With {
             .Arguments = $"--update {Process.GetCurrentProcess().Id} ""{PathExe}"" ""{UpdatePath}"" True",
@@ -123,7 +172,6 @@ Module ModBeta
     ''' 无法连接或资格失效时由调用方决定切回正式版或退出。
     ''' </summary>
     Friend Function CheckBetaUsable() As BetaGate
-        If Not ServerEnabled Then Return BetaGate.Ok 'Server not configured: skip the online check
         Dim Msg As String
         Hint("正在校验内测资格……")
         Try

@@ -8,17 +8,17 @@
     PanScroll="PanBack">
     <local:MyScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" x:Name="PanBack">
         <StackPanel x:Name="PanMain" Margin="25,10">
-            <local:MyCard Margin="0,15" Title="维护工具">
+            <local:MyCard Margin="0,15" Title="工具">
                 <StackPanel Margin="25,40,25,15">
                     <Grid Height="35" Margin="0,0,0,4">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" SharedSizeGroup="Button" />
                             <ColumnDefinition Width="Auto" SharedSizeGroup="Button" />
                         </Grid.ColumnDefinitions>
-                        <local:MyButton x:Name="BtnTestMemory" Text="内存优化" MinWidth="140" Padding="13,0" Margin="0,0,20,0" ToolTip="立即回收 TYW Launcher 占用的内存" />
+                        <local:MyButton x:Name="BtnTestMemory" Text="内存优化" MinWidth="140" Padding="13,0" Margin="0,0,20,0" ToolTip="释放 TYW Launcher 占用的内存，并以 TYW Launcher 身份请求管理员权限，对系统中内存占用较高的进程进行深度内存整理" />
                         <local:MyButton x:Name="BtnTestRubbish" Text="垃圾清理" MinWidth="140" Padding="13,0" Margin="0,0,20,0" Grid.Column="1" ToolTip="清理 TYW Launcher 的缓存目录（Cache / Download），不会影响已保存的游戏与设置" />
                     </Grid>
-                    <TextBlock Text="内存优化会立刻尝试释放启动器占用的物理内存；垃圾清理会删除缓存文件，下次使用相关功能时会自动重新下载。" TextWrapping="Wrap" Opacity="0.6" FontSize="12" Margin="0,6,25,0" />
+                    <TextBlock Text="内存优化会释放启动器占用的内存，并弹出一个来自 TYW Launcher 的管理员授权（UAC），对系统里内存占用较高的进程做深度整理；垃圾清理会删除缓存文件，下次使用相关功能时会自动重新下载。" TextWrapping="Wrap" Opacity="0.6" FontSize="12" Margin="0,6,25,0" />
                 </StackPanel>
             </local:MyCard>
             <local:MyCard Margin="0,0,0,15" Title="娱乐">

@@ -3472,6 +3472,7 @@
  "是否要打开新功能投票网页？": "Do you want to open the new feature voting page?",
  "如果无法打开该网页，请使用 VPN 改善网络环境。": "If the page cannot be opened, use a VPN to improve your network.",
  "维护工具": "Maintenance Tools",
+ "工具": "Tools",
  "立即回收 TYW Launcher 占用的内存": "Free up the memory used by TYW Launcher now",
  "清理 TYW Launcher 的缓存目录（Cache / Download），不会影响已保存的游戏与设置": "Clean TYW Launcher's cache directories (Cache / Download); saved games and settings are not affected",
  "内存优化会立刻尝试释放启动器占用的物理内存；垃圾清理会删除缓存文件，下次使用相关功能时会自动重新下载。": "Memory optimization immediately tries to free the physical memory used by the launcher; junk cleanup deletes cache files, which will be re-downloaded automatically the next time the related features are used.",

@@ -6,8 +6,8 @@ Friend Module ModSecret
     Public Const VersionBranchMain As String = "OpenSource"
     '在开源版的注册表与常规版的注册表隔离，以防数据冲突
     Public Const RegFolder As String = "PCLDebug"
-    '用于微软登录的 ClientId
     '★ 与上游开源版一致：仓库里不保存真实密钥，构建时通过环境变量注入（PCL_MS_CLIENT_ID / PCL_CURSEFORGE_API_KEY）
+    '用于微软登录的 ClientId
     Public OAuthClientId As String = If(Environment.GetEnvironmentVariable("PCL_MS_CLIENT_ID"), "")
     'CurseForge API Key
     Public CurseForgeAPIKey As String = If(Environment.GetEnvironmentVariable("PCL_CURSEFORGE_API_KEY"), "")
@@ -212,7 +212,9 @@ Friend Module ModSecret
         Return True
     End Function
     Friend Function ThemeUnlock(Id As Integer, Optional ShowDoubleHint As Boolean = True, Optional UnlockHint As String = Nothing) As Boolean
-        Return True
+        '个性化（含隐藏主题）已经全部直接可用，不存在"刚刚解锁"这件事，
+        '因此这里恒返回 False：调用方的「xxx 已解锁！」弹窗不会再反复出现。
+        Return False
     End Function
 
 #End Region
@@ -398,7 +400,9 @@ Friend Module ModSecret
             End If
             If MyMsgBox($"发现新版本：{LatestName}{vbCrLf}当前版本：{VersionBaseName}{If(NoticeText = "", "", vbCrLf & vbCrLf & NoticeText)}{vbCrLf}{vbCrLf}是否立即下载并更新？",
                         "启动器更新", "更新", "取消") = 2 Then Return
-            UpdateDownloadAndRestart()
+            Hint("正在下载更新，进度见右下角，完成后会自动替换重启……", HintType.Blue)
+            '★ 必须切到工作线程下载：WaitForExit 阻塞的是当前线程，放在按钮的 UI 线程会导致窗口长时间未响应
+            RunInNewThread(AddressOf UpdateDownloadAndRestart, "启动器更新下载")
         Catch ex As Exception
             '没网 / 连不上服务器 不算错误：不弹框、不上报，只在左下角提示
             If IsNetworkIssue(ex) Then
@@ -409,7 +413,8 @@ Friend Module ModSecret
         End Try
     End Sub
 
-    ''' <summary>从服务端下载当前通道的最新版启动器，完成后自动替换重启（右下角显示下载进度）。</summary>
+    ''' <summary>从服务端下载当前通道的最新版启动器，完成后自动替换重启（右下角显示下载进度）。
+    ''' ★ 必须在工作线程调用（内部 WaitForExit 阻塞），否则会卡死 UI 线程。</summary>
     Private Sub UpdateDownloadAndRestart()
         Dim UpdatePath As String = PathTemp & "TYW Launcher\Update.exe"
         FileUtils.Delete(UpdatePath)
@@ -421,6 +426,36 @@ Friend Module ModSecret
         FrmMain.BtnExtraDownload.ShowRefresh()
         FrmMain.BtnExtraDownload.Ribble()
         Combo.WaitForExit()
+        '下载被取消或失败：不替换程序，启动器继续运行
+        If Combo.State <> LoadState.Finished Then
+            Logger.Warn($"更新下载未完成（{Combo.State}），已放弃替换，启动器继续运行")
+            FileUtils.Delete(UpdatePath)
+            Hint("更新下载未完成，启动器保持当前版本", HintType.Blue, True)
+            Return
+        End If
+        '兜底校验：必须是完整下载的 exe（大小合理且带 MZ 头），否则不替换
+        Dim Size As Long = 0
+        Try
+            If IO.File.Exists(UpdatePath) Then Size = New IO.FileInfo(UpdatePath).Length
+        Catch
+        End Try
+        Dim IsExe As Boolean = False
+        If Size > 2 * 1024 * 1024 Then
+            Try
+                Dim Head(1) As Byte
+                Using Fs As IO.FileStream = IO.File.OpenRead(UpdatePath)
+                    Fs.Read(Head, 0, 2)
+                End Using
+                IsExe = (Head(0) = &H4D AndAlso Head(1) = &H5A) 'MZ
+            Catch
+            End Try
+        End If
+        If Not IsExe Then
+            Logger.Warn($"更新下载得到的文件异常（{Size} 字节），已放弃替换")
+            FileUtils.Delete(UpdatePath)
+            Hint("更新下载失败，启动器保持当前版本", HintType.Red, True)
+            Return
+        End If
         Hint("启动器更新下载完成，即将自动替换……", HintType.Green)
         '启动替换进程：--update 旧进程PID 旧文件 新文件 是否重启
         Dim NewProcess As New ProcessStartInfo(UpdatePath) With {
@@ -567,7 +602,6 @@ Friend Module ModSecret
 
     '同步发送一条上报，返回是否成功
     Private Function TryPostReport(Content As String) As Boolean
-        If Not ServerEnabled Then Return False 'Server not configured: keep reports cached locally
         Try
             Dim Req As System.Net.HttpWebRequest = CType(System.Net.WebRequest.Create(ServerAddress & "report"), System.Net.HttpWebRequest)
             Req.Method = "POST"
@@ -675,7 +709,6 @@ Friend Module ModSecret
     ''' </summary>
     Public ServerLoader As New LoaderTask(Of Integer, Integer)("TYW Launcher 配置更新",
         Sub(Loader As LoaderTask(Of Integer, Integer))
-            If Not ServerEnabled Then Return 'Server not configured: skip cloud config & update check
             Try
                 Dim Segments = ReadServerNotice()
                 '已连上服务端：把断网期间缓存的记录补报上去
@@ -835,10 +868,6 @@ Friend Module ModSecret
     ''' 切换更新通道后立即检查一次当前通道的版本：有新版本则自动下载并重启，否则提示已是最新。
     ''' </summary>
     Friend Sub CheckChannelUpdateAndRestart()
-        If Not ServerEnabled Then
-            Hint("Server not configured, skipping channel update check", HintType.Blue)
-            Return
-        End If
         RunInNewThread(
             Sub()
                 Try
@@ -851,7 +880,9 @@ Friend Module ModSecret
                         If(BuildType = BuildTypes.Beta, "Beta", If(BuildType = BuildTypes.Snapshot, "Snapshot", "Release"))
                     If RunningChannel <> TargetChannel Then
                         Logger.Info($"通道切换：{RunningChannel} → {TargetChannel}，开始替换启动器程序")
-                        If Not SwitchChannel(TargetChannel) Then
+                        '内测版程序分发受服务端保护：下载 Beta.exe 必须附带设备码与内测码
+                        If Not SwitchChannel(TargetChannel, Ident:=DeviceCode,
+                                             Key:=If(TargetChannel = "Beta", Settings.Get(Of String)("BetaCode"), "")) Then
                             '下载被取消 / 失败：程序本体没换，继续用当前通道运行
                             Hint("通道切换未完成，仍在使用" & ChannelDisplay(RunningChannel) & "启动器", HintType.Red)
                         End If

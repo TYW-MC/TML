@@ -81,13 +81,25 @@ Public Module ModBedrock
     Public Const PfnPreview As String = "Microsoft.MinecraftWindowsBeta_8wekyb3d8bbwe"
 
     ''' <summary>
-    ''' 基岩版下载目录。
+    ''' 基岩版实例的目录名，与 Java 版一样以版本号命名，如 "基岩版 1.21.114"。
     ''' </summary>
-    Public ReadOnly Property BedrockDownloadPath As String
-        Get
-            Return Paths.AppDataThenName & "Bedrock\"
-        End Get
-    End Property
+    Public Function BedrockInstanceName(Entry As BedrockVersionEntry) As String
+        Return "基岩版 " & Entry.Version
+    End Function
+
+    ''' <summary>
+    ''' 基岩版实例的版本文件夹，与 Java 版一样位于 versions\版本名\。
+    ''' </summary>
+    Public Function BedrockInstanceFolder(Entry As BedrockVersionEntry) As String
+        Return PathUtils.AddSlashSuffix(McFolderSelected) & "versions\" & BedrockInstanceName(Entry) & "\"
+    End Function
+
+    ''' <summary>
+    ''' 基岩版安装包的存放目录，位于对应实例的版本文件夹下。
+    ''' </summary>
+    Public Function BedrockPackageFolder(Entry As BedrockVersionEntry) As String
+        Return BedrockInstanceFolder(Entry) & "bedrock\"
+    End Function
 
 #End Region
 
@@ -251,9 +263,9 @@ Public Module ModBedrock
         If UpdateIdOrUrl Is Nothing Then Throw New Exception($"该版本不提供 {Arch} 架构的安装包")
         Dim IsGdk As Boolean = UpdateIdOrUrl.StartsWithF("http")
         Dim Url As String = If(IsGdk, UpdateIdOrUrl, BedrockGetDownloadUrl(UpdateIdOrUrl))
-        Directory.CreateDirectory(BedrockDownloadPath)
+        Directory.CreateDirectory(BedrockPackageFolder(Entry))
         Dim FileName As String = $"Minecraft-{Entry.Version}-{Arch}.{If(IsGdk, "msixvc", "appx")}"
-        Dim LocalPath As String = BedrockDownloadPath & FileName
+        Dim LocalPath As String = BedrockPackageFolder(Entry) & FileName
         Logger.Info($"[Bedrock] 开始下载基岩版 {Entry.Version}（{Arch}，{If(IsGdk, "GDK", "UWP")}）：{Url}")
         '通过 FileChecker 让下载引擎自动进行 MD5 校验
         Dim Expected = Entry.GetMd5(Arch)
@@ -310,6 +322,7 @@ Public Module ModBedrock
 
     ''' <summary>
     ''' 下载并安装指定基岩版版本。必须在工作线程调用。
+    ''' 下载与安装会作为任务出现在右下角的下载列表中。
     ''' 防重复：若有任务进行中则提示并返回 False。
     ''' </summary>
     Public Function BedrockDownloadAndInstall(Entry As BedrockVersionEntry) As Boolean
@@ -319,27 +332,55 @@ Public Module ModBedrock
         End If
         InstallingBedrockVersion = Entry.Version
         Try
-            Dim IsGdk As Boolean = Entry.BuildType = "GDK"
-            Hint($"正在获取基岩版 {Entry.Version} 的下载直链……", HintType.Blue)
             Dim Arch = BedrockBestArch()
             If Entry.GetUpdateId(Arch) Is Nothing Then Arch = Entry.Variations.Keys.First()
-            Hint($"正在下载基岩版 {Entry.Version}（约 1 GB，视网络情况可能需要几分钟）……", HintType.Blue)
-            Dim PkgPath = BedrockDownload(Entry, Arch)
+            Dim IsGdk As Boolean = Entry.BuildType = "GDK"
+            Dim UpdateIdOrUrl As String = Entry.GetUpdateId(Arch)
+            Dim IsUrl As Boolean = UpdateIdOrUrl.StartsWithF("http")
+            Hint($"正在获取基岩版 {Entry.Version} 的下载直链……", HintType.Blue)
+            Dim Url As String = If(IsUrl, UpdateIdOrUrl, BedrockGetDownloadUrl(UpdateIdOrUrl))
+            Directory.CreateDirectory(BedrockPackageFolder(Entry))
+            Dim LocalPath As String = BedrockPackageFolder(Entry) & $"Minecraft-{Entry.Version}-{Arch}.{If(IsGdk, "msixvc", "appx")}"
+            Dim Expected As String = Entry.GetMd5(Arch)
+            Dim Checker As FileChecker = If(Expected = "", New FileChecker, New FileChecker With {.Hash = Expected})
+
+            '构建任务：下载 + 安装，加入任务栏后右下角会显示进度
+            Dim SubLoaders As New List(Of LoaderBase) From {
+                New LoaderDownload("下载基岩版安装包 " & Entry.Version,
+                                   New List(Of NetFile) From {New NetFile({Url}, LocalPath, Checker)}) With {.ProgressWeight = 20}
+            }
+            If Not IsGdk Then
+                Dim InstallWorker As New RedoableWorker(
+                    Sub(c, p)
+                        p.Set(0.2)
+                        BedrockInstallAppx(LocalPath)
+                        p.Set(0.95)
+                    End Sub)
+                SubLoaders.Add(New LoaderWorker("安装基岩版 " & Entry.Version, InstallWorker) With {.ProgressWeight = 5})
+            End If
+            Dim Loader As New LoaderCombo(Of String)("安装基岩版 " & Entry.Version, SubLoaders)
+            Loader.Start(Entry.Version)
+            LoaderTaskbarAdd(Loader)
+            FrmMain.BtnExtraDownload.ShowRefresh()
+            Loader.WaitForExit()
+
+            '写入版本记录：与 Java 版一样放在 versions\版本名\ 下
+            BedrockInstanceWrite(Entry, Arch, LocalPath)
+
             If IsGdk Then
                 'GDK 版（1.21.120.21+）是 MSIXVC 包，无法用系统组件安装，需要 LeviLauncher 等工具加载
                 Hint($"GDK 版 {Entry.Version} 下载完成。", HintType.Green)
                 RunInUiWait(Sub()
-                                If MyMsgBox($"GDK 版本 {Entry.Version} 已下载完成。" & vbCrLf &
+                                If MyMsgBox($"GDK 版本 {Entry.Version} 已下载完成，并已添加到版本列表。" & vbCrLf &
                                             "GDK 版无法通过系统组件直接安装，需要使用开源工具 LeviLauncher 加载安装（需要微软账户拥有基岩版权限、系统已安装 Gaming Services）。" & vbCrLf & vbCrLf &
                                             "是否打开安装包所在文件夹？", "GDK 版本下载完成", "打开文件夹", "完成") = 1 Then
-                                    StartProcess("explorer.exe", $"/select,""{PkgPath}""")
+                                    StartProcess("explorer.exe", $"/select,""{LocalPath}""")
                                 End If
                             End Sub)
                 Return False
             End If
-            Hint($"下载完成，正在安装基岩版 {Entry.Version}……", HintType.Blue)
-            BedrockInstallAppx(PkgPath)
-            Hint($"基岩版 {Entry.Version} 安装完成！可以从开始菜单或启动页启动游戏。", HintType.Green)
+
+            Hint($"基岩版 {Entry.Version} 安装完成！已添加到版本列表，可在启动页选择并启动。", HintType.Green)
             Return True
         Catch ex As Exception
             Logger.Error(ex, "下载或安装基岩版失败")
@@ -349,6 +390,57 @@ Public Module ModBedrock
             InstallingBedrockVersion = Nothing
         End Try
     End Function
+
+#End Region
+
+#Region "版本目录"
+
+    ''' <summary>
+    ''' 将基岩版的日期文本转换为 ISO 时间，失败时返回当前时间。
+    ''' </summary>
+    Private Function BedrockIsoTime(Raw As String) As String
+        Dim Time As Date
+        If Date.TryParse(Raw, Time) Then Return Time.ToString("yyyy'-'MM'-'dd'T'HH':'mm':'ss'Z'")
+        Return Date.Now.ToString("yyyy'-'MM'-'dd'T'HH':'mm':'ss'Z'")
+    End Function
+
+    ''' <summary>
+    ''' 在 versions\版本名\ 下创建与 Java 版结构一致的版本记录，使基岩版出现在版本列表中。
+    ''' 该记录只是一个标记，游戏本体由系统 Appx 提供。必须在工作线程调用。
+    ''' </summary>
+    Public Sub BedrockInstanceWrite(Entry As BedrockVersionEntry, Arch As String, PkgPath As String)
+        Dim Folder As String = BedrockInstanceFolder(Entry)
+        Directory.CreateDirectory(Folder)
+        Directory.CreateDirectory(Folder & "TYW Launcher\")
+        Dim PkgRelative As String = ""
+        If PkgPath IsNot Nothing AndAlso PkgPath.StartsWithF(Folder) Then PkgRelative = PkgPath.Substring(Folder.Length).Replace("/"c, "\"c)
+        Dim Json As New JObject From {
+            {"id", BedrockInstanceName(Entry)},
+            {"type", "release"},
+            {"mainClass", "net.minecraft.client.main.Main"},
+            {"minimumLauncherVersion", 21},
+            {"releaseTime", BedrockIsoTime(Entry.ReleaseDate)},
+            {"time", BedrockIsoTime(Entry.ReleaseDate)},
+            {"assets", "legacy"},
+            {"assetIndex", New JObject From {{"id", "legacy"}, {"url", ""}, {"sha1", ""}, {"size", 0}, {"totalSize", 0}}},
+            {"downloads", New JObject},
+            {"libraries", New JArray},
+            {"arguments", New JObject From {{"game", New JArray}, {"jvm", New JArray}}},
+            {"bedrock", True},
+            {"bedrockChannel", If(Entry.Type = "Release", "retail", "preview")},
+            {"bedrockVersion", Entry.Version},
+            {"bedrockBuildType", If(Entry.BuildType = "", "UWP", Entry.BuildType)},
+            {"bedrockArch", Arch},
+            {"bedrockPackage", PkgRelative}
+        }
+        Dim JsonPath As String = Folder & BedrockInstanceName(Entry) & ".json"
+        Try
+            File.WriteAllText(JsonPath, Json.ToString(), Encoding.UTF8)
+        Catch ex As Exception
+            Throw New Exception($"写入基岩版版本记录失败（{JsonPath}）", ex)
+        End Try
+        Logger.Info($"[Bedrock] 已写入基岩版版本记录：{JsonPath}")
+    End Sub
 
 #End Region
 

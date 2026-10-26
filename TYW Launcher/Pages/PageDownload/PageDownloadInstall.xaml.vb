@@ -73,13 +73,26 @@ Public Class PageDownloadInstall
             For Each Channel In Channels
                 Dim List As List(Of BedrockVersionEntry) = ModBedrock.BedrockVersionFilter(Channel.Value)
                 If Not List.Any Then Continue For
+                '正式版用基岩方块图标，预览版用草径方块图标
+                Dim IconFile As String = If(Channel.Value, "GrassPath.png", "Bedrock.png")
+                Dim IconPath As String = PathImage & "Blocks/" & IconFile
                 Dim Card As New MyCard With {.Title = Channel.Key, .Margin = New Thickness(0, 0, 0, 15)}
+                Dim CardTitle As String = Channel.Key
+                Dim CardCount As Integer = List.Count
+                AddHandler Card.Loaded, Sub()
+                                            Try
+                                                CardTitleAddIcon(Card, CardTitle, IconPath, CardCount)
+                                            Catch ex As Exception
+                                                Logger.Warn(ex, "基岩版栏目图标加载失败")
+                                            End Try
+                                        End Sub
                 Dim Stack As New StackPanel With {.Margin = New Thickness(20, MyCard.SwapedHeight, 18, 0), .VerticalAlignment = VerticalAlignment.Top, .RenderTransform = New TranslateTransform(0, 0)}
                 Card.Children.Add(Stack)
                 Card.SwapControl = Stack
-                For Each Entry In List.Take(50) '每栏目最多 50 个，完整列表在「基岩版」独立页
+                For Each Entry In List 'mcappx 上的全部版本都列出，不再截断
                     Dim Item As New MyListItem With {
                         .Title = Entry.Version,
+                        .Logo = IconPath,
                         .Type = MyListItem.CheckType.Clickable,
                         .Tag = Entry,
                         .MinPaddingRight = 50,
@@ -95,8 +108,10 @@ Public Class PageDownloadInstall
                                                Dim Clicked As BedrockVersionEntry = CType(CType(sender, MyListItem).Tag, BedrockVersionEntry)
                                                RunInNewThread(Sub()
                                                                   If ModBedrock.BedrockDownloadAndInstall(Clicked) Then
-                                                                      '安装成功后刷新独立基岩版页的已安装状态（如果它已创建）
-                                                                      If FrmDownloadBedrock IsNot Nothing Then FrmDownloadBedrock.RefreshInstalledPublic()
+                                                                      '安装成功后刷新版本列表，新版本会像 Java 版一样出现在启动页
+                                                                      McInstanceListForceRefresh = True
+                                                                      LoaderFolderRun(McInstanceListLoader, McFolderSelected, LoaderFolderRunType.ForceRun, MaxDepth:=1, ExtraPath:="versions\", WaitForExit:=True)
+                                                                      RunInUi(Sub() FrmLaunchLeft?.RefreshButtonsUI())
                                                                   End If
                                                               End Sub, "Bedrock Download")
                                            End Sub
@@ -108,6 +123,26 @@ Public Class PageDownloadInstall
         Catch ex As Exception
             Logger.Error(ex, "构建基岩版栏目失败")
         End Try
+    End Sub
+
+    ''' <summary>
+    ''' 在卡片标题左侧加上方块图标（正式版为基岩、预览版为草径），并在标题后追加版本总数。
+    ''' 必须在卡片 Loaded 之后调用，此时 MyCard 已创建好标题 TextBlock。
+    ''' </summary>
+    Private Sub CardTitleAddIcon(Card As MyCard, Title As String, IconPath As String, Count As Integer)
+        Dim TitleBlock As TextBlock = Card.MainTextBlock
+        If TitleBlock Is Nothing Then Return
+        Dim Icon As New MyImage With {
+            .Source = IconPath,
+            .Height = 17,
+            .Margin = New Thickness(0, 0, 6, 0),
+            .SnapsToDevicePixels = True}
+        RenderOptions.SetBitmapScalingMode(Icon, BitmapScalingMode.Linear)
+        '标题本身由 Text 绑定，改用 Inlines 重排（清空会解除原绑定）
+        TitleBlock.Inlines.Clear()
+        TitleBlock.Inlines.Add(New InlineUIContainer(Icon) With {.BaselineAlignment = BaselineAlignment.Center})
+        TitleBlock.Inlines.Add(New Run(Title))
+        TitleBlock.Inlines.Add(New Run($"（{Count} 个版本）") With {.Foreground = ColorGray4, .FontSize = 12, .FontWeight = FontWeights.Normal})
     End Sub
 
 #End Region

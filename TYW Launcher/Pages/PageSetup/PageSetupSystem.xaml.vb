@@ -18,8 +18,21 @@ Public Class PageSetupSystem
         '土豆码本身已无意义（全部功能已解锁），隐藏按钮只留识别码
         PanDonate.Visibility = Visibility.Visible
         BtnSystemUnlock.Visibility = Visibility.Collapsed
-        '两行按钮在 XAML 里都排在 Grid.Row=9 会重叠，这里把识别码这一行挪到下一行
-        Grid.SetRow(PanDonate, If(BetaRowAdded, 11, 10))
+        '两行按钮在 XAML 里排在同一行会重叠，这里按“检查更新”按钮行的实际行号把识别码这一行排到下一行
+        '（不写死行号：BuildBetaCheck 插行后行号会整体变化，XAML 与旧 BAML 的行号也可能不同）
+        Try
+            Dim UpdateGrid As Grid = TryCast(BtnSystemUpdate.Parent, Grid)
+            Dim Host As Grid = TryCast(If(UpdateGrid?.Parent, PanDonate.Parent), Grid)
+            If UpdateGrid IsNot Nothing AndAlso Host IsNot Nothing Then
+                Dim TargetRow As Integer = Grid.GetRow(UpdateGrid) + 1
+                While Host.RowDefinitions.Count <= TargetRow
+                    Host.RowDefinitions.Add(New RowDefinition With {.Height = GridLength.Auto})
+                End While
+                Grid.SetRow(PanDonate, TargetRow)
+            End If
+        Catch ex As Exception
+            Logger.Warn(ex, "调整识别码按钮行位置失败")
+        End Try
 
         '内测版限制：匿名上报强制开启且不可取消；不提供自动更新与检查更新
         '★ 必须放在 Reload() 之后：Reload 会把设置里的真实值刷回控件，
@@ -173,36 +186,27 @@ Public Class PageSetupSystem
     End Sub
 
     ''' <summary>
-    ''' 内测版「获取更新（需要内测更新码）」：校验内测码通过后，下载内测版最新版本并替换重启。
+    ''' 内测版「获取更新（需要内测更新码）」：输入单次更新码，校验通过后下载内测版最新版本并替换重启。
+    ''' 更新码由服务端按设备码发放，单次有效：校验通过即标记为已用，更新完成后服务端记录自动删除。
     ''' </summary>
     Private Sub BetaGetUpdate()
-        '优先使用本机已保存的内测码；没有则让用户输入
-        Dim Code As String = Settings.Get(Of String)("BetaCode")
-        If Code = "" Then
-            Code = MyMsgBoxInput("获取内测更新",
-                "内测码由服务端管理员按设备码发放。" & vbCrLf &
-                "你的设备码：" & DeviceCode & vbCrLf & vbCrLf &
-                "校验通过后会下载内测版最新版本并重启。", "", HintText:="内测码", Button1:="获取更新")
-            If Code Is Nothing OrElse Code.Trim = "" Then Return
-            Code = Code.Trim()
-        End If
-        Hint("正在校验内测码……")
+        Dim Code As String = MyMsgBoxInput("获取内测更新",
+            "内测更新码由服务端管理员按设备码发放，单次有效。" & vbCrLf &
+            "你的设备码：" & DeviceCode & vbCrLf & vbCrLf &
+            "校验通过后会下载内测版最新版本并重启。", "", HintText:="内测更新码（xxxx-xxxx-xxxx-xxxx）", Button1:="获取更新")
+        If Code Is Nothing OrElse Code.Trim = "" Then Return
+        Code = Code.Trim()
+        Hint("正在校验内测更新码……")
         Dim Verified As Boolean = False
         Dim ErrMsg As String = ""
-        Dim NewCode As String = Code
         Dim Worker As New System.Threading.Thread(
             Sub()
                 Try
-                    Dim Result = VerifyBetaCode(Code)
+                    Dim Result = VerifyBetaUpdateCode(Code)
                     If Result.Ok Then
                         Verified = True
-                        If Result.VersionCode <= VersionCode Then
-                            ErrMsg = $"你已经是内测版最新版本（版本码 {VersionCode}），无需更新。"
-                        End If
                     Else
-                        ErrMsg = If(Result.Message = "", "内测码无效或已被停用", Result.Message)
-                        '已保存的内测码失效：清空，下次重新输入
-                        Settings.Set("BetaCode", "")
+                        ErrMsg = If(Result.Message = "", "更新码无效或已被使用", Result.Message)
                     End If
                 Catch ex As Exception
                     ErrMsg = If(IsNetworkIssue(ex), "连不上服务器，请检查网络后重试。", ex.Message)
@@ -212,15 +216,18 @@ Public Class PageSetupSystem
         Worker.Start()
         Worker.Join()
         If Not Verified Then
-            MyMsgBox(If(ErrMsg = "", "内测码校验失败", ErrMsg), "获取内测更新", IsWarn:=True)
+            MyMsgBox(If(ErrMsg = "", "内测更新码校验失败", ErrMsg), "获取内测更新", IsWarn:=True)
             Return
         End If
-        Settings.Set("BetaCode", NewCode)
-        Hint("内测码校验通过，正在下载内测版最新版本……", HintType.Green)
+        Hint("内测更新码校验通过，正在下载内测版最新版本……", HintType.Green)
         RunInNewThread(
             Sub()
-                If SwitchChannel("Beta") Then Return
-                Hint("内测版更新下载未完成，启动器保持当前版本", HintType.Blue)
+                '下载完成、替换重启前上报服务端：删除已用的更新码记录
+                '下载内测版程序要附带凭据（设备码 + 更新码），服务端会校验，否则 403 拒绝分发
+                If SwitchChannel("Beta", OnDownloaded:=Sub() ReportBetaUpdateDone(Code), Ident:=DeviceCode, Key:=Code) Then Return
+                '更新失败：更新码已在服务端标记为已用，提示用户找管理员恢复或重新发放
+                Hint("内测版更新下载未完成，启动器保持当前版本。" & vbCrLf &
+                     "你输入的更新码已被使用，如需重新获取请联系管理员恢复或重发。", HintType.Blue, True)
             End Sub, "获取内测更新")
     End Sub
     ''' <summary>
@@ -373,7 +380,8 @@ Public Class PageSetupSystem
         RunInNewThread(
             Sub()
                 '下载被取消或失败时 SwitchChannel 返回 False：恢复原来的状态，复选框打回原样，进程继续运行
-                If SwitchChannel("Beta") Then Return
+                '下载内测版程序要附带凭据（设备码 + 内测码），服务端会校验，否则 403 拒绝分发
+                If SwitchChannel("Beta", Ident:=DeviceCode, Key:=Code) Then Return
                 RunInUi(
                     Sub()
                         Settings.Set("BetaEnabled", PrevEnabled)

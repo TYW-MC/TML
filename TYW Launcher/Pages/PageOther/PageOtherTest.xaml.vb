@@ -24,8 +24,48 @@ Public Class PageOtherTest
         End Try
     End Sub
 
+    ''' <summary>
+    ''' 今日人品值（0-100）：按当天日期生成，同一天无论抽多少次都是同一个数字，跨天才会变化。
+    ''' </summary>
+    Public Shared Function JrrpValue() As Integer
+        Dim SeedText As String = "TYW-Jrrp-" & Format(Date.Now, "yyyyMMdd")
+        Dim Hash As Byte() = System.Security.Cryptography.MD5.Create().ComputeHash(System.Text.Encoding.UTF8.GetBytes(SeedText))
+        Return CInt(CLng(BitConverter.ToUInt32(Hash, 0)) Mod 101)
+    End Function
+
+    ''' <summary>
+    ''' 按人品值给出分档评语：每 10 点为一档（0-9、10-19 …… 90-99，100 单独一档）。
+    ''' </summary>
+    Public Shared Function JrrpComment(Value As Integer) As String
+        Select Case Value
+            Case 100
+                Return "满人品！今天干什么都顺，记得把好运分一点给别人。"
+            Case Is >= 90
+                Return "欧气满满，钻石矿脉正在向你招手。"
+            Case Is >= 80
+                Return "运气极佳，适合挑战一直不敢打的地牢。"
+            Case Is >= 70
+                Return "手气挺好，赶紧去挖矿或者开箱吧。"
+            Case Is >= 60
+                Return "运气不错，适合出门探索新地形。"
+            Case Is >= 50
+                Return "普普通通的一天，稳扎稳打就好。"
+            Case Is >= 40
+                Return "差一点点就过半了，别灰心。"
+            Case Is >= 30
+                Return "今天有点平淡，做点简单的事吧。"
+            Case Is >= 20
+                Return "不太顺，先整理整理箱子、修修房子。"
+            Case Is >= 10
+                Return "运气有点背，下矿记得带水桶和床。"
+            Case Else
+                Return "今天连方块都不想放，早点休息吧。"
+        End Select
+    End Function
+
     Public Shared Sub Jrrp()
-        Hint("今日人品为 " & RandomInteger(0, 100) & " 点！", HintType.Green)
+        Dim Value As Integer = JrrpValue()
+        Hint($"今日人品为 {Value} 点！{JrrpComment(Value)}", If(Value < 50, HintType.Red, HintType.Green))
     End Sub
 
     Public Shared Sub RubbishClear()
@@ -91,6 +131,85 @@ Public Class PageOtherTest
         MemoryOptimize(ShowHint)
     End Sub
 
+    ''' <summary>
+    ''' 对全系统中工作集大于 20MB 的进程逐个 EmptyWorkingSet，返回成功的个数。
+    ''' 供提权进程（--deepmem 参数自启）调用，此时已具备管理员权限。
+    ''' </summary>
+    Public Shared Function DeepOptimizeAllProcesses() As Integer
+        Dim Count As Integer = 0
+        For Each P As Process In Process.GetProcesses()
+            Try
+                If P.WorkingSet64 < 20 * 1024 * 1024 Then Continue For
+                Dim Ok As Boolean = False
+                Try
+                    Ok = EmptyWorkingSet(P.Handle)
+                Catch ex As EntryPointNotFoundException
+                    Ok = False
+                End Try
+                If Not Ok Then
+                    Try
+                        Ok = SetProcessWorkingSetSize(P.Handle, New IntPtr(-1), New IntPtr(-1))
+                    Catch
+                    End Try
+                End If
+                If Ok Then Count += 1
+            Catch
+            Finally
+                Try
+                    P.Dispose()
+                Catch
+                End Try
+            End Try
+        Next
+        Return Count
+    End Function
+
+    ''' <summary>
+    ''' 提权深度内存优化：先清理启动器自身，再以管理员权限自启一个启动器进程（--deepmem 参数，
+    ''' UAC 弹窗显示为 TYW Launcher），由它对全系统高内存进程做深度整理。
+    ''' 必须在非 UI 线程调用（内部会等待提权进程结束）。
+    ''' </summary>
+    Public Shared Sub DeepMemoryOptimize(ShowHint As Boolean)
+        MemoryOptimize(False) '第一步：先清启动器自己（不需要提权）
+        Dim ResultFile As String = PathTemp & "DeepMemResult.txt"
+        Try
+            If File.Exists(ResultFile) Then File.Delete(ResultFile)
+        Catch
+        End Try
+        Try
+            '以管理员权限自启启动器：UAC 弹窗显示 TYW Launcher 而不是 PowerShell
+            Dim Psi As New ProcessStartInfo(PathExe) With {
+                .Arguments = "--deepmem """ & ResultFile & """",
+                .Verb = "runas",
+                .WindowStyle = ProcessWindowStyle.Hidden,
+                .UseShellExecute = True}
+            Dim P = Process.Start(Psi)
+            If P IsNot Nothing Then P.WaitForExit(120000)
+            Dim CountValue As Integer = -1
+            Try
+                If File.Exists(ResultFile) Then Integer.TryParse(File.ReadAllText(ResultFile).Trim, CountValue)
+            Catch
+            End Try
+            If Not ShowHint Then Return
+            If CountValue > 0 Then
+                Hint($"内存优化完成！已整理 {CountValue} 个进程的内存。", HintType.Green)
+            ElseIf CountValue = 0 Then
+                Hint("内存优化完成！", HintType.Green)
+            Else
+                '提权进程没能写回结果（例如被安全软件拦截）：不视为失败
+                Hint("内存优化完成！", HintType.Green)
+            End If
+        Catch ex As Exception
+            Dim W32 = TryCast(ex, System.ComponentModel.Win32Exception)
+            If W32 IsNot Nothing AndAlso W32.NativeErrorCode = 1223 Then
+                If ShowHint Then Hint("已取消管理员授权，仅清理了启动器自身的内存", HintType.Blue)
+            Else
+                If ShowHint Then Hint("深度内存优化失败：" & ex.Message, HintType.Red)
+                Logger.Error(ex, "提权深度内存优化失败")
+            End If
+        End Try
+    End Sub
+
     Public Shared Function GetRandomCave() As String
         Static Caves As New List(Of String) From {
             "与其最终离去，不如从未归来。",
@@ -124,7 +243,8 @@ Public Class PageOtherTest
 
     '页面按钮事件
     Private Sub BtnTestMemory_Click(sender As Object, e As EventArgs) Handles BtnTestMemory.Click
-        MemoryOptimize(True)
+        Hint("正在请求管理员权限进行内存优化……")
+        RunInNewThread(Sub() DeepMemoryOptimize(True), "Deep Memory Optimize")
     End Sub
     Private Sub BtnTestRubbish_Click(sender As Object, e As EventArgs) Handles BtnTestRubbish.Click
         If MyMsgBox("即将清理 TYW Launcher 的缓存目录（Cache / Download），清理后相关文件会自动重新下载。" & vbCrLf & "确定继续吗？", "垃圾清理", "确定", "取消") = 1 Then
@@ -132,7 +252,9 @@ Public Class PageOtherTest
         End If
     End Sub
     Private Sub BtnTestJrrp_Click(sender As Object, e As EventArgs) Handles BtnTestJrrp.Click
-        MyMsgBox("你今日的人品值为：" & vbCrLf & RandomInteger(0, 100) & " 点", "今日人品", "再来一次", "关闭")
+        Dim Value As Integer = JrrpValue()
+        '低于 50 时用警告样式（红色标题与按钮）提示
+        MyMsgBox($"你今日的人品值为：{vbCrLf}{Value} 点{vbCrLf}{vbCrLf}{JrrpComment(Value)}", "今日人品", IsWarn:=Value < 50)
     End Sub
     Private Sub BtnTestHint_Click(sender As Object, e As EventArgs) Handles BtnTestHint.Click
         MyMsgBox(GetRandomHint(), "随机提示")
