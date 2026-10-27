@@ -8,15 +8,43 @@ Public Class PageInstanceLeft
 
     Private Sub PageInstanceLeft_Loaded(sender As Object, e As RoutedEventArgs) Handles Me.Loaded
         PageSetupUI.HiddenRefresh()
+        '资源包 / 行为包沿用 Mod 项的图标，避免在 XAML 里重复一大段 SVG
+        If ItemResPack.Logo = "" Then ItemResPack.Logo = ItemMod.Logo
+        If ItemBehPack.Logo = "" Then ItemBehPack.Logo = ItemMod.Logo
     End Sub
 
     Public Sub RefreshModDisabled() Handles Me.Loaded
-        If Instance IsNot Nothing AndAlso Instance.Modable Then
+        Dim IsBedrock As Boolean = Instance IsNot Nothing AndAlso Instance.IsBedrock
+        '基岩版没有 Java 版意义上的「修改」与「导出」，Mod 管理换成资源包 / 行为包管理
+        ItemModify.Visibility = If(IsBedrock, Visibility.Collapsed, Visibility.Visible)
+        ItemExport.Visibility = If(IsBedrock, Visibility.Collapsed, Visibility.Visible)
+        ItemResPack.Visibility = If(IsBedrock, Visibility.Visible, Visibility.Collapsed)
+        ItemBehPack.Visibility = If(IsBedrock, Visibility.Visible, Visibility.Collapsed)
+        If IsBedrock Then
+            ItemMod.Visibility = Visibility.Collapsed
+            ItemModDisabled.Visibility = Visibility.Collapsed
+        ElseIf Instance IsNot Nothing AndAlso Instance.Modable Then
             ItemMod.Visibility = Visibility.Visible
             ItemModDisabled.Visibility = Visibility.Collapsed
         Else
             ItemMod.Visibility = Visibility.Collapsed
             ItemModDisabled.Visibility = Visibility.Visible
+        End If
+        '当前子页面在新版本下已经不可用（例如从 Java 版切到基岩版时正停在「导出」），回到概览
+        Dim Invalid As Boolean = False
+        Select Case PageID
+            Case FormMain.PageSubType.InstanceModify, FormMain.PageSubType.InstanceExport,
+                 FormMain.PageSubType.InstanceMod, FormMain.PageSubType.InstanceModDisabled
+                Invalid = IsBedrock
+            Case FormMain.PageSubType.InstanceResPack, FormMain.PageSubType.InstanceBehPack
+                Invalid = Not IsBedrock
+        End Select
+        If Invalid Then
+            RunInUi(
+                Sub()
+                    ItemOverall.Checked = True
+                    PageChange(FormMain.PageSubType.InstanceOverall)
+                End Sub)
         End If
     End Sub
 
@@ -30,7 +58,7 @@ Public Class PageInstanceLeft
     ''' <summary>
     ''' 勾选事件改变页面。
     ''' </summary>
-    Private Sub PageCheck(sender As FrameworkElement, e As RouteEventArgs) Handles ItemOverall.Check, ItemMod.Check, ItemModDisabled.Check, ItemSetup.Check, ItemModify.Check, ItemExport.Check
+    Private Sub PageCheck(sender As FrameworkElement, e As RouteEventArgs) Handles ItemOverall.Check, ItemMod.Check, ItemModDisabled.Check, ItemSetup.Check, ItemModify.Check, ItemExport.Check, ItemResPack.Check, ItemBehPack.Check
         '尚未初始化控件属性时，sender.Tag 为 Nothing，会导致切换到页面 0
         '若使用 IsLoaded，则会导致模拟点击不被执行（模拟点击切换页面时，控件的 IsLoaded 为 False）
         If sender.Tag IsNot Nothing Then PageChange(Val(sender.Tag))
@@ -57,6 +85,12 @@ Public Class PageInstanceLeft
             Case FormMain.PageSubType.InstanceModify
                 If FrmDownloadModify Is Nothing Then FrmDownloadModify = New PageDownloadModify
                 Return FrmDownloadModify
+            Case FormMain.PageSubType.InstanceResPack
+                If FrmInstanceResPack Is Nothing Then FrmInstanceResPack = New PageInstanceBedrockPack With {.IsBehavior = False}
+                Return FrmInstanceResPack
+            Case FormMain.PageSubType.InstanceBehPack
+                If FrmInstanceBehPack Is Nothing Then FrmInstanceBehPack = New PageInstanceBedrockPack With {.IsBehavior = True}
+                Return FrmInstanceBehPack
             Case Else
                 Throw New Exception("未知的版本设置子页面种类：" & ID)
         End Select
@@ -123,6 +157,12 @@ Public Class PageInstanceLeft
             Case FormMain.PageSubType.InstanceModify
                 FrmDownloadModify?.PageLoaderRestart()
                 ItemModify.Checked = True
+            Case FormMain.PageSubType.InstanceResPack
+                FrmInstanceResPack?.ReloadList()
+                ItemResPack.Checked = True
+            Case FormMain.PageSubType.InstanceBehPack
+                FrmInstanceBehPack?.ReloadList()
+                ItemBehPack.Checked = True
         End Select
     End Sub
 

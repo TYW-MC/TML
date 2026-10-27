@@ -1,4 +1,4 @@
-Imports System.Windows.Threading
+﻿Imports System.Windows.Threading
 
 Public Class PageLaunchLeft
 
@@ -838,27 +838,70 @@ ExitRefresh:
 
     ''' <summary>
     ''' 启动当前选中的基岩版实例。基岩版与 Java 版共用「启动游戏」按钮，由启动入口统一调用。
+    ''' 基岩版只能用微软账户，启动前会确保客户端已登录 Xbox 账户，没登录就弹出系统登录窗口让用户登录。
     ''' </summary>
     Public Sub BedrockLaunchSelected()
         Dim Instance As McInstance = McInstanceSelected
         If Instance Is Nothing OrElse Not Instance.IsBedrock Then Return
+        Dim Preview As Boolean = Instance.BedrockChannel = "preview"
         If Instance.BedrockBuildType = "GDK" Then
-            MyMsgBox("GDK 版基岩版无法由启动器直接启动。" & vbCrLf & vbCrLf &
-                     "请使用 LeviLauncher 加载已下载的 GDK 安装包，安装包位于该版本的 bedrock 文件夹中。",
-                     "启动基岩版", "知道了")
+            BedrockLaunchGdk(Instance)
             Return
         End If
-        Dim Preview As Boolean = Instance.BedrockChannel = "preview"
-        Hint($"正在检测已安装的基岩版 {Instance.BedrockVersionText}……")
+        Hint("正在检查基岩版的 Xbox 登录状态……")
+        Dim Hwnd As IntPtr = New System.Windows.Interop.WindowInteropHelper(FrmMain).Handle
         RunInNewThread(
             Sub()
                 Dim Installed As String = ModBedrock.BedrockGetInstalled(Preview)
-                RunInUi(Sub() BedrockLaunchCheck(Preview, Installed))
+                Dim Missing As List(Of String) = ModBedrock.BedrockMissingSignInComponents()
+                Dim Account As ModBedrockAuth.BedrockAccount = Nothing
+                Dim FailMessage As String = ""
+                Try
+                    Account = ModBedrockAuth.EnsureSignedIn(Hwnd)
+                Catch ex As Exception
+                    Logger.Warn(ex, "基岩版 Xbox 登录未完成")
+                    FailMessage = ex.Message
+                End Try
+                RunInUi(Sub() BedrockLaunchCheck(Preview, Installed, Missing, Account, FailMessage))
             End Sub, "Bedrock Detect Launch")
     End Sub
 
-    ''' <summary>检查安装与登录状态后启动指定的基岩版渠道。</summary>
-    Private Sub BedrockLaunchCheck(Preview As Boolean, Installed As String)
+    ''' <summary>
+    ''' GDK 版启动：先确保 Gaming Services 依赖，再尝试启动已安装的 GDK 包。
+    ''' MSIXVC 安装包本身需要 GDK 工具或第三方工具部署，启动器只负责下载与依赖。
+    ''' </summary>
+    Private Sub BedrockLaunchGdk(Instance As McInstance)
+        Hint("正在检查 GDK 版运行依赖……")
+        RunInNewThread(
+            Sub()
+                Dim DepReady As Boolean = ModBedrock.BedrockEnsureGamingServices()
+                Dim PackageName As String = ModBedrock.BedrockGdkPackageName()
+                RunInUi(
+                    Sub()
+                        If PackageName <> "" Then
+                            If MyMsgBox($"检测到本机已安装 GDK 版基岩版：{PackageName}。{vbCrLf}{vbCrLf}是否立即启动？",
+                                        "启动基岩版", "启动", "取消") = 1 Then
+                                StartProcess("explorer.exe", "shell:AppsFolder\" & PackageName & "!App")
+                            End If
+                            Return
+                        End If
+                        Dim Msg As String = $"GDK 版 {Instance.BedrockVersionText} 的安装包已下载到该版本的 bedrock 文件夹中。" & vbCrLf & vbCrLf &
+                                            If(DepReady, "运行所需的 Gaming Services 依赖已就绪。", "Gaming Services 依赖尚未安装成功，请先在微软商店安装。") & vbCrLf &
+                                            "MSIXVC 格式的安装包无法由系统组件安装，需要用 GDK 工具（wdapp install）或 LeviLauncher 部署后再启动。" & vbCrLf & vbCrLf &
+                                            "是否打开安装包所在文件夹？"
+                        If MyMsgBox(Msg, "GDK 版基岩版", "打开文件夹", "关闭") = 1 Then
+                            Dim Folder As String = Instance.PathVersion & "bedrock\"
+                            StartProcess("explorer.exe", Chr(34) & Folder.TrimEnd("\"c) & Chr(34))
+                        End If
+                    End Sub)
+            End Sub, "Bedrock GDK Launch")
+    End Sub
+
+    ''' <summary>检查 Xbox 登录状态、安装状态与登录组件后启动指定的基岩版渠道。</summary>
+    Private Sub BedrockLaunchCheck(Preview As Boolean, Installed As String,
+                                   Optional MissingComponents As List(Of String) = Nothing,
+                                   Optional Account As ModBedrockAuth.BedrockAccount = Nothing,
+                                   Optional FailMessage As String = "")
         If Installed Is Nothing Then
             If MyMsgBox(ModLang.T("尚未安装基岩版%CHN%。是否前往下载页安装？").Replace("%CHN%", If(Preview, ModLang.T("预览版"), ModLang.T("正式版"))),
                         ModLang.T("启动基岩版"), ModLang.T("前往下载"), ModLang.T("取消")) = 1 Then
@@ -866,15 +909,65 @@ ExitRefresh:
             End If
             Return
         End If
-        '基岩版仅支持微软账户登录：必须已登录正版（微软）账户
-        If Settings.Get(Of Long)("CacheMsV2Expires") <= ToUnixTimestampUtc(Date.UtcNow) Then
-            If MyMsgBox(ModLang.T("基岩版仅支持微软账户登录启动。请先在启动页选择「正版」登录方式并完成微软账户登录。"),
-                        ModLang.T("启动基岩版"), ModLang.T("切换为正版登录"), ModLang.T("取消")) = 1 Then
-                Settings.Set("LoginType", McLoginType.Ms)
-                If RadioLoginType5 IsNot Nothing AndAlso RadioLoginType5.Visibility = Visibility.Visible Then RadioLoginType5.Checked = True
-                RefreshPage(True, False)
-            End If
+        '基岩版没有离线账户，必须先登录微软账户
+        If Account Is Nothing Then
+            Dim Msg As String = "启动基岩版需要先登录微软账户（Xbox）。" & vbCrLf &
+                                If(String.IsNullOrEmpty(FailMessage), "", "原因：" & FailMessage & vbCrLf) & vbCrLf &
+                                "是否重新打开登录窗口？"
+            If MyMsgBox(Msg, "启动基岩版", "重新登录", "取消", IsWarn:=True) = 1 Then BedrockLaunchSelected()
             Return
+        End If
+        '缺少 Xbox 组件时，游戏内点「登录」会没反应或直接失败
+        If MissingComponents IsNot Nothing AndAlso MissingComponents.Count > 0 Then
+            Dim Msg As String = "基岩版的微软账户登录依赖 Windows 的 Xbox 身份组件，当前检测到它们没有安装：" & vbCrLf &
+                                "　· " & String.Join(vbCrLf & "　· ", MissingComponents.ToArray()) & vbCrLf & vbCrLf &
+                                "缺少这些组件时，游戏里点「登录」可能没有反应或直接登录失败。是否现在安装？"
+            Select Case MyMsgBox(Msg, "启动基岩版", "立即安装", "仍要启动", "取消")
+                Case 1
+                    Hint("正在安装 Xbox 登录组件……", HintType.Blue)
+                    RunInNewThread(
+                        Sub()
+                            Dim Ok As Boolean = ModBedrock.BedrockInstallSignInComponents()
+                            RunInUi(
+                                Sub()
+                                    Dim Text As String = If(Ok,
+                                        "Xbox 登录组件已就绪。",
+                                        "组件未能全部自动安装，请在微软商店搜索 Xbox Identity Provider 与 Gaming Services 手动安装，装好后重启一次电脑。")
+                                    If MyMsgBox(Text & vbCrLf & vbCrLf & "现在启动游戏吗？", "启动基岩版", "启动游戏", "取消") = 1 Then
+                                        BedrockLaunchWithTip(Preview, Account.Display)
+                                    End If
+                                End Sub)
+                        End Sub, "Bedrock Install SignIn")
+                    Return
+                Case 2
+                    '用户选择仍然启动
+                Case Else
+                    Return
+            End Select
+        End If
+        BedrockLaunchWithTip(Preview, Account.Display)
+    End Sub
+
+    ''' <summary>
+    ''' 启动基岩版。首次启动时说明账户由 Windows 的 Xbox 身份系统承载，之后不再提示。
+    ''' </summary>
+    Private Sub BedrockLaunchWithTip(Preview As Boolean, Optional AccountName As String = "")
+        If Not String.IsNullOrEmpty(AccountName) Then Hint("基岩版账户：" & AccountName, HintType.Blue)
+        If Not Settings.Get(Of Boolean)("BedrockLoginTipShown") Then
+            Dim Msg As String = "基岩版使用的是 Windows 里的 Xbox 账户，启动器已经让你在客户端登录好了。" & vbCrLf & vbCrLf &
+                                "如果游戏里仍然显示未登录，点一次左下角的「登录」并勾选「保持登录状态」，之后就会一直保持登录。" & vbCrLf & vbCrLf &
+                                "账户可以在 Windows 设置 → 账户 → 电子邮件和账户 里管理。" & vbCrLf &
+                                If(String.IsNullOrEmpty(AccountName), "",
+                                   "本次使用的账户：" & AccountName)
+            Select Case MyMsgBox(Msg, "基岩版登录说明", "启动游戏", "账户设置", "取消")
+                Case 1
+                    Settings.Set("BedrockLoginTipShown", True)
+                Case 2
+                    StartProcess("explorer.exe", "ms-settings:emailandaccounts")
+                    Return
+                Case Else
+                    Return
+            End Select
         End If
         ModBedrock.BedrockLaunch(Preview)
     End Sub

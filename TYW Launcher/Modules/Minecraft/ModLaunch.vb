@@ -547,6 +547,11 @@ NextInner:
 
     '各个登录方式的主对象与输入构造
     Public McLoginMsLoader As New LoaderTask(Of McLoginMs, McLoginResult)("Loader Login Ms", AddressOf McLoginMsStart) With {.ReloadTimeout = 1}
+    ''' <summary>
+    ''' 为 True 时正版登录只允许静默刷新，凭据失效会直接抛异常，不会弹出浏览器登录窗口。
+    ''' 用于基岩版启动前的自动登录。
+    ''' </summary>
+    Public LoginSilentOnly As Boolean = False
     Public McLoginLegacyLoader As New LoaderTask(Of McLoginLegacy, McLoginResult)("Loader Login Legacy", AddressOf McLoginLegacyStart)
     Public McLoginNideLoader As New LoaderTask(Of McLoginServer, McLoginResult)("Loader Login Nide", AddressOf McLoginServerStart) With {.ReloadTimeout = 1000 * 60 * 10}
     Public McLoginAuthLoader As New LoaderTask(Of McLoginServer, McLoginResult)("Loader Login Auth", AddressOf McLoginServerStart) With {.ReloadTimeout = 1000 * 60 * 10}
@@ -576,12 +581,16 @@ NextInner:
         Dim OAuthTokens As (OAuthAccessToken As String, OAuthRefreshToken As String)
         If Input.OAuthRefreshToken = "" Then
             '无 RefreshToken
+            If LoginSilentOnly Then Throw New Exception("没有可用的微软账户登录凭据，需要手动登录")
 Relogin:
             OAuthTokens = MsLoginStep1New(Data)
         Else
             '有 RefreshToken
             OAuthTokens = MsLoginStep1Refresh(Input.OAuthRefreshToken)
-            If OAuthTokens.OAuthAccessToken = "Relogin" Then GoTo Relogin '要求重新打开登录网页认证
+            If OAuthTokens.OAuthAccessToken = "Relogin" Then
+                If LoginSilentOnly Then Throw New Exception("微软账户登录凭据已失效，需要重新登录")
+                GoTo Relogin '要求重新打开登录网页认证
+            End If
         End If
         If Data.IsCanceled Then Throw New OperationCanceledException
         Data.Progress = 0.25

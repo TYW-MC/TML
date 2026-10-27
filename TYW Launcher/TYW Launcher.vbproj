@@ -160,6 +160,20 @@
       <HintPath>Resources\Ookii.Dialogs.Wpf.dll</HintPath>
       <Private>False</Private>
     </Reference>
+    <Reference Include="System.Runtime.WindowsRuntime" />
+    <Reference Include="System.Runtime.InteropServices.WindowsRuntime" />
+    <Reference Include="Windows.Foundation">
+      <HintPath>$(SystemRoot)\System32\WinMetadata\Windows.Foundation.winmd</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Windows.Security">
+      <HintPath>$(SystemRoot)\System32\WinMetadata\Windows.Security.winmd</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Windows.System">
+      <HintPath>$(SystemRoot)\System32\WinMetadata\Windows.System.winmd</HintPath>
+      <Private>False</Private>
+    </Reference>
     <Reference Include="System.Configuration" />
     <Reference Include="System.Core" />
     <Reference Include="System.Drawing" />
@@ -330,6 +344,9 @@
     <Compile Include="Pages\PageInstance\PageInstanceModDisabled.xaml.vb">
       <DependentUpon>PageInstanceModDisabled.xaml</DependentUpon>
     </Compile>
+    <Compile Include="Pages\PageInstance\PageInstanceBedrockPack.xaml.vb">
+      <DependentUpon>PageInstanceBedrockPack.xaml</DependentUpon>
+    </Compile>
     <Compile Include="Pages\PageInstance\PageInstanceOverall.xaml.vb">
       <DependentUpon>PageInstanceOverall.xaml</DependentUpon>
     </Compile>
@@ -344,6 +361,7 @@
     <Compile Include="Modules\Minecraft\ModLaunch.vb" />
     <Compile Include="Modules\Minecraft\ModMinecraft.vb" />
     <Compile Include="Modules\Minecraft\ModBedrock.vb" />
+    <Compile Include="Modules\Minecraft\ModBedrockAuth.vb" />
     <Compile Include="Pages\PageOther\PageOtherTest.xaml.vb">
       <DependentUpon>PageOtherTest.xaml</DependentUpon>
     </Compile>
@@ -670,6 +688,10 @@
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Include="Pages\PageInstance\PageInstanceModDisabled.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="Pages\PageInstance\PageInstanceBedrockPack.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>

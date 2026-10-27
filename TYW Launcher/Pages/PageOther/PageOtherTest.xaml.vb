@@ -1,4 +1,4 @@
-Public Class PageOtherTest
+﻿Public Class PageOtherTest
 
     ''' <summary>
     ''' 开始一个自定义下载任务（百宝箱/自定义事件使用）。
@@ -241,7 +241,7 @@ Public Class PageOtherTest
         Return Presets(RandomInteger(0, Presets.Count - 1))
     End Function
 
-    '页面按钮事件
+
     Private Sub BtnTestMemory_Click(sender As Object, e As EventArgs) Handles BtnTestMemory.Click
         Hint("正在请求管理员权限进行内存优化……")
         RunInNewThread(Sub() DeepMemoryOptimize(True), "Deep Memory Optimize")
