@@ -853,7 +853,8 @@ ExitRefresh:
         RunInNewThread(
             Sub()
                 Dim Installed As String = ModBedrock.BedrockGetInstalled(Preview)
-                Dim Missing As List(Of String) = ModBedrock.BedrockMissingSignInComponents()
+                'UWP 版的 Xbox 登录依赖随系统自带，不需要额外装东西；只有 GDK 版才检查 Gaming Services
+                Dim Missing As List(Of String) = Nothing
                 Dim Account As ModBedrockAuth.BedrockAccount = Nothing
                 Dim FailMessage As String = ""
                 Try
@@ -897,7 +898,7 @@ ExitRefresh:
             End Sub, "Bedrock GDK Launch")
     End Sub
 
-    ''' <summary>检查 Xbox 登录状态、安装状态与登录组件后启动指定的基岩版渠道。</summary>
+    ''' <summary>检查 Xbox 登录状态与安装状态后启动指定的基岩版渠道。</summary>
     Private Sub BedrockLaunchCheck(Preview As Boolean, Installed As String,
                                    Optional MissingComponents As List(Of String) = Nothing,
                                    Optional Account As ModBedrockAuth.BedrockAccount = Nothing,
@@ -917,34 +918,7 @@ ExitRefresh:
             If MyMsgBox(Msg, "启动基岩版", "重新登录", "取消", IsWarn:=True) = 1 Then BedrockLaunchSelected()
             Return
         End If
-        '缺少 Xbox 组件时，游戏内点「登录」会没反应或直接失败
-        If MissingComponents IsNot Nothing AndAlso MissingComponents.Count > 0 Then
-            Dim Msg As String = "基岩版的微软账户登录依赖 Windows 的 Xbox 身份组件，当前检测到它们没有安装：" & vbCrLf &
-                                "　· " & String.Join(vbCrLf & "　· ", MissingComponents.ToArray()) & vbCrLf & vbCrLf &
-                                "缺少这些组件时，游戏里点「登录」可能没有反应或直接登录失败。是否现在安装？"
-            Select Case MyMsgBox(Msg, "启动基岩版", "立即安装", "仍要启动", "取消")
-                Case 1
-                    Hint("正在安装 Xbox 登录组件……", HintType.Blue)
-                    RunInNewThread(
-                        Sub()
-                            Dim Ok As Boolean = ModBedrock.BedrockInstallSignInComponents()
-                            RunInUi(
-                                Sub()
-                                    Dim Text As String = If(Ok,
-                                        "Xbox 登录组件已就绪。",
-                                        "组件未能全部自动安装，请在微软商店搜索 Xbox Identity Provider 与 Gaming Services 手动安装，装好后重启一次电脑。")
-                                    If MyMsgBox(Text & vbCrLf & vbCrLf & "现在启动游戏吗？", "启动基岩版", "启动游戏", "取消") = 1 Then
-                                        BedrockLaunchWithTip(Preview, Account.Display)
-                                    End If
-                                End Sub)
-                        End Sub, "Bedrock Install SignIn")
-                    Return
-                Case 2
-                    '用户选择仍然启动
-                Case Else
-                    Return
-            End Select
-        End If
+        'UWP 版的 Xbox 登录依赖是系统自带的，不检查也不提示安装；只有 GDK 版才需要 Gaming Services（在 BedrockLaunchGdk 里处理）
         BedrockLaunchWithTip(Preview, Account.Display)
     End Sub
 

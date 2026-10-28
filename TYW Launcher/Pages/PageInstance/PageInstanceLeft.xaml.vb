@@ -20,6 +20,7 @@ Public Class PageInstanceLeft
         ItemExport.Visibility = If(IsBedrock, Visibility.Collapsed, Visibility.Visible)
         ItemResPack.Visibility = If(IsBedrock, Visibility.Visible, Visibility.Collapsed)
         ItemBehPack.Visibility = If(IsBedrock, Visibility.Visible, Visibility.Collapsed)
+        ItemMap.Visibility = If(IsBedrock, Visibility.Visible, Visibility.Collapsed)
         If IsBedrock Then
             ItemMod.Visibility = Visibility.Collapsed
             ItemModDisabled.Visibility = Visibility.Collapsed
@@ -36,7 +37,7 @@ Public Class PageInstanceLeft
             Case FormMain.PageSubType.InstanceModify, FormMain.PageSubType.InstanceExport,
                  FormMain.PageSubType.InstanceMod, FormMain.PageSubType.InstanceModDisabled
                 Invalid = IsBedrock
-            Case FormMain.PageSubType.InstanceResPack, FormMain.PageSubType.InstanceBehPack
+            Case FormMain.PageSubType.InstanceResPack, FormMain.PageSubType.InstanceBehPack, FormMain.PageSubType.InstanceMap
                 Invalid = Not IsBedrock
         End Select
         If Invalid Then
@@ -58,7 +59,7 @@ Public Class PageInstanceLeft
     ''' <summary>
     ''' 勾选事件改变页面。
     ''' </summary>
-    Private Sub PageCheck(sender As FrameworkElement, e As RouteEventArgs) Handles ItemOverall.Check, ItemMod.Check, ItemModDisabled.Check, ItemSetup.Check, ItemModify.Check, ItemExport.Check, ItemResPack.Check, ItemBehPack.Check
+    Private Sub PageCheck(sender As FrameworkElement, e As RouteEventArgs) Handles ItemOverall.Check, ItemMod.Check, ItemModDisabled.Check, ItemSetup.Check, ItemModify.Check, ItemExport.Check, ItemResPack.Check, ItemBehPack.Check, ItemMap.Check
         '尚未初始化控件属性时，sender.Tag 为 Nothing，会导致切换到页面 0
         '若使用 IsLoaded，则会导致模拟点击不被执行（模拟点击切换页面时，控件的 IsLoaded 为 False）
         If sender.Tag IsNot Nothing Then PageChange(Val(sender.Tag))
@@ -91,6 +92,9 @@ Public Class PageInstanceLeft
             Case FormMain.PageSubType.InstanceBehPack
                 If FrmInstanceBehPack Is Nothing Then FrmInstanceBehPack = New PageInstanceBedrockPack With {.IsBehavior = True}
                 Return FrmInstanceBehPack
+            Case FormMain.PageSubType.InstanceMap
+                If FrmInstanceWorld Is Nothing Then FrmInstanceWorld = New PageInstanceBedrockWorld
+                Return FrmInstanceWorld
             Case Else
                 Throw New Exception("未知的版本设置子页面种类：" & ID)
         End Select
@@ -163,6 +167,9 @@ Public Class PageInstanceLeft
             Case FormMain.PageSubType.InstanceBehPack
                 FrmInstanceBehPack?.ReloadList()
                 ItemBehPack.Checked = True
+            Case FormMain.PageSubType.InstanceMap
+                FrmInstanceWorld?.ReloadList()
+                ItemMap.Checked = True
         End Select
     End Sub
 

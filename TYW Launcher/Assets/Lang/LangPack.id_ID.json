@@ -1,4 +1,4 @@
-{
+﻿{
  "取消": "Batal",
  "无": "Tidak ada",
  "确定": "OK",
@@ -4132,5 +4132,11 @@
  "前往下载": "Ke Unduhan",
  "基岩版仅支持微软账户登录启动。请先在启动页选择「正版」登录方式并完成微软账户登录。": "Edisi Bedrock hanya mendukung login dengan akun Microsoft. Silakan pilih metode login «Lisensi» di halaman peluncuran dan login terlebih dahulu.",
  "切换为正版登录": "Ganti ke Login Microsoft",
- "GDK（需 LeviLauncher）": "GDK (butuh LeviLauncher)"
+ "GDK（需 LeviLauncher）": "GDK (butuh LeviLauncher)",
+ "地图管理": "Kelola Peta",
+ "导入地图": "Impor Peta",
+ "尚未导入地图": "Belum ada peta",
+ "你可以导入 .mcworld 或 .zip 格式的地图，导入后会出现在游戏的「世界」列表里。": "Kamu bisa mengimpor peta berformat .mcworld atau .zip. Peta yang diimpor akan muncul di daftar Dunia di dalam game.",
+ "地图操作": "Aksi Peta",
+ "删除地图": "Hapus Peta"
 }

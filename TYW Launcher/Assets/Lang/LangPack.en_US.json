@@ -1,4 +1,4 @@
-{
+﻿{
  "取消": "Cancel",
  "无": "None",
  "确定": "OK",
@@ -4132,5 +4132,11 @@
  "前往下载": "Go to Download",
  "基岩版仅支持微软账户登录启动。请先在启动页选择「正版」登录方式并完成微软账户登录。": "Bedrock Edition only supports signing in with a Microsoft account. Please select the Microsoft (online) login method on the launch page and sign in first.",
  "切换为正版登录": "Switch to Microsoft Login",
- "GDK（需 LeviLauncher）": "GDK (needs LeviLauncher)"
+ "GDK（需 LeviLauncher）": "GDK (needs LeviLauncher)",
+ "地图管理": "Maps",
+ "导入地图": "Import Map",
+ "尚未导入地图": "No maps imported yet",
+ "你可以导入 .mcworld 或 .zip 格式的地图，导入后会出现在游戏的「世界」列表里。": "You can import maps in .mcworld or .zip format. Imported maps will appear in the World list in the game.",
+ "地图操作": "Map Actions",
+ "删除地图": "Delete Map"
 }

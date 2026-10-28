@@ -862,4 +862,149 @@ Public Module ModBedrock
 
 #End Region
 
+#Region "地图（世界）"
+
+    ''' <summary>
+    ''' 已安装的基岩版地图（世界）信息。每个世界对应 minecraftWorlds 下的一个文件夹。
+    ''' </summary>
+    Public Class BedrockWorldInfo
+        ''' <summary>世界文件夹的完整路径。</summary>
+        Public Path As String = ""
+        ''' <summary>世界文件夹名（游戏自己用的随机串，或导入时生成的名字）。</summary>
+        Public FolderName As String = ""
+        ''' <summary>显示名，取自 levelname.txt，缺失时用文件夹名。</summary>
+        Public Name As String = ""
+        ''' <summary>世界文件夹占用的字节数。</summary>
+        Public Size As Long = 0
+        ''' <summary>最后游玩时间（level.dat 的修改时间）。</summary>
+        Public Modified As Date = New Date(0)
+        ''' <summary>世界图标（world_icon.jpeg）路径，没有则为空字符串。</summary>
+        Public Icon As String = ""
+    End Class
+
+    ''' <summary>
+    ''' 基岩版地图（世界）的存放目录，位于游戏的 com.mojang\minecraftWorlds\ 下。
+    ''' </summary>
+    Public Function BedrockWorldFolder(Preview As Boolean, BuildType As String) As String
+        Return BedrockMojangFolder(Preview, BuildType) & "minecraftWorlds\"
+    End Function
+
+    ''' <summary>
+    ''' 读取世界文件夹里的 levelname.txt。兼容 UTF-8（含 BOM）与 UTF-16，读取失败返回空字符串。
+    ''' </summary>
+    Private Function ReadWorldName(Folder As String) As String
+        Dim NamePath As String = PathUtils.AddSlashSuffix(Folder) & "levelname.txt"
+        If Not FileUtils.Exists(NamePath) Then Return ""
+        Try
+            Dim Bytes As Byte() = IO.File.ReadAllBytes(NamePath)
+            If Bytes.Length = 0 Then Return ""
+            If Bytes.Length >= 2 AndAlso Bytes(0) = &HFF AndAlso Bytes(1) = &HFE Then Return Encoding.Unicode.GetString(Bytes, 2, Bytes.Length - 2).Trim()
+            If Bytes.Length >= 2 AndAlso Bytes(0) = &HFE AndAlso Bytes(1) = &HFF Then Return Encoding.BigEndianUnicode.GetString(Bytes, 2, Bytes.Length - 2).Trim()
+            Dim Start As Integer = 0
+            If Bytes.Length >= 3 AndAlso Bytes(0) = &HEF AndAlso Bytes(1) = &HBB AndAlso Bytes(2) = &HBF Then Start = 3
+            Return Encoding.UTF8.GetString(Bytes, Start, Bytes.Length - Start).Trim()
+        Catch ex As Exception
+            Logger.Warn(ex, "读取世界名称失败：" & NamePath)
+            Return ""
+        End Try
+    End Function
+
+    ''' <summary>
+    ''' 列出已安装的地图（世界），按最后游玩时间降序排列。
+    ''' </summary>
+    Public Function BedrockWorldList(Preview As Boolean, BuildType As String) As List(Of BedrockWorldInfo)
+        Dim Result As New List(Of BedrockWorldInfo)
+        Dim Folder As String = BedrockWorldFolder(Preview, BuildType)
+        If Not DirectoryUtils.Exists(Folder) Then Return Result
+        For Each SubDir In Directory.GetDirectories(Folder)
+            Try
+                Dim LevelDat As String = PathUtils.AddSlashSuffix(SubDir) & "level.dat"
+                '没有 level.dat 的目录不是世界（例如残留的空文件夹、世界模板缓存）
+                If Not FileUtils.Exists(LevelDat) Then Continue For
+                Dim Info As New BedrockWorldInfo With {.Path = SubDir, .FolderName = Path.GetFileName(SubDir)}
+                Info.Name = ReadWorldName(SubDir)
+                If Info.Name = "" Then Info.Name = Info.FolderName
+                Info.Size = BedrockFolderSize(SubDir)
+                Info.Modified = IO.File.GetLastWriteTime(LevelDat)
+                Dim Icon As String = PathUtils.AddSlashSuffix(SubDir) & "world_icon.jpeg"
+                If FileUtils.Exists(Icon) Then Info.Icon = Icon
+                Result.Add(Info)
+            Catch ex As Exception
+                Logger.Warn(ex, "读取基岩版地图失败：" & SubDir)
+            End Try
+        Next
+        Return Result.OrderByDescending(Function(w) w.Modified).ToList()
+    End Function
+
+    ''' <summary>
+    ''' 递归找出世界根目录（含 level.dat 的目录，最多向下两层），即一个完整的地图。
+    ''' </summary>
+    Private Sub FindWorldRoots(Folder As String, Roots As List(Of String), Optional Depth As Integer = 0)
+        If FileUtils.Exists(PathUtils.AddSlashSuffix(Folder) & "level.dat") Then
+            Roots.Add(Folder)
+            Return
+        End If
+        If Depth >= 2 Then Return
+        For Each SubDir In Directory.GetDirectories(Folder)
+            FindWorldRoots(SubDir, Roots, Depth + 1)
+        Next
+    End Sub
+
+    ''' <summary>
+    ''' 导入地图：支持 .mcworld（本质是 zip）、.zip，以及 .mctemplate 等同样是 zip 的格式。
+    ''' 压缩包里可以有一个或多个世界文件夹。必须在工作线程调用。返回 (成功数, 失败数)。
+    ''' </summary>
+    Public Function BedrockWorldImport(Files As IEnumerable(Of String), Preview As Boolean, BuildType As String) As (Imported As Integer, Failed As Integer)
+        Dim Imported As Integer = 0, Failed As Integer = 0
+        Dim Temp As String = PathTemp & "BedrockWorldTemp\"
+        Dim TargetRoot As String = BedrockWorldFolder(Preview, BuildType)
+        For Each PkgPath In Files
+            Try
+                If Directory.Exists(Temp) Then Directory.Delete(Temp, True)
+                Directory.CreateDirectory(Temp)
+                '不按扩展名分发：.mcworld / .mctemplate / .zip 都是标准 zip
+                IO.Compression.ZipFile.ExtractToDirectory(PkgPath, Temp)
+                Dim Roots As New List(Of String)
+                FindWorldRoots(Temp.TrimEnd("\"c), Roots)
+                If Not Roots.Any Then Throw New Exception("压缩包里没有找到地图数据（缺少 level.dat），不是有效的基岩版地图")
+                Directory.CreateDirectory(TargetRoot)
+                For Each Root In Roots
+                    '优先沿用世界原来的文件夹名，重名时加序号；游戏按文件夹区分世界，名字本身不影响读取
+                    Dim Name As String = Path.GetFileName(Root.TrimEnd("\"c))
+                    If String.IsNullOrWhiteSpace(Name) OrElse Name.StartsWithF("BedrockWorldTemp") Then
+                        Name = "Imported_" & Date.Now.ToString("yyyyMMdd_HHmmss")
+                    End If
+                    Dim Target As String = PathUtils.AddSlashSuffix(TargetRoot) & Name
+                    Dim Index As Integer = 2
+                    While DirectoryUtils.Exists(Target)
+                        Target = PathUtils.AddSlashSuffix(TargetRoot) & Name & "_" & Index
+                        Index += 1
+                    End While
+                    BedrockCopyFolder(Root, Target)
+                    Imported += 1
+                    Logger.Info($"[Bedrock] 已导入地图：{ReadWorldName(Root)} → {Target}（来源 {PkgPath}）")
+                Next
+            Catch ex As Exception
+                Failed += 1
+                Logger.Error(ex, "导入基岩版地图失败：" & PkgPath)
+            Finally
+                Try
+                    If Directory.Exists(Temp) Then Directory.Delete(Temp, True)
+                Catch
+                End Try
+            End Try
+        Next
+        Return (Imported, Failed)
+    End Function
+
+    ''' <summary>
+    ''' 删除一个已安装的地图（世界）。
+    ''' </summary>
+    Public Sub BedrockWorldDelete(Info As BedrockWorldInfo)
+        If Info Is Nothing OrElse Not DirectoryUtils.Exists(Info.Path) Then Return
+        Directory.Delete(Info.Path, True)
+    End Sub
+
+#End Region
+
 End Module

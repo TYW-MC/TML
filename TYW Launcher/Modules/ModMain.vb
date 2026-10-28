@@ -432,6 +432,7 @@ EndHint:
     Public FrmInstanceExport As PageInstanceExport
     Public FrmInstanceResPack As PageInstanceBedrockPack
     Public FrmInstanceBehPack As PageInstanceBedrockPack
+    Public FrmInstanceWorld As PageInstanceBedrockWorld
     Public FrmDownloadModify As PageDownloadModify
 
     '资源信息分页声明

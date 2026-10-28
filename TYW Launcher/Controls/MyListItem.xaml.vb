@@ -228,7 +228,7 @@ Public Class MyListItem
                             .RenderTransform = New ScaleTransform With {.ScaleX = LogoScale, .ScaleY = LogoScale},
                             .SnapsToDevicePixels = True, .UseLayoutRounding = False}
                     RenderOptions.SetBitmapScalingMode(PathLogo, BitmapScalingMode.Linear)
-                ElseIf _Logo.EndsWithF(".png", True) OrElse _Logo.EndsWithF(".jpg", True) OrElse _Logo.EndsWithF(".webp", True) Then
+                ElseIf _Logo.EndsWithF(".png", True) OrElse _Logo.EndsWithF(".jpg", True) OrElse _Logo.EndsWithF(".jpeg", True) OrElse _Logo.EndsWithF(".webp", True) Then
                     '位图
                     PathLogo = New Canvas With {
                             .Tag = Me,
@@ -330,7 +330,7 @@ Public Class MyListItem
         ColumnCheck.Width = New GridLength(If(_Type = CheckType.None OrElse _Type = CheckType.Clickable, If(Height < 40, 4, 2), 6))
         ColumnLogo.Width = New GridLength(If(_Logo = "", 0, 34) + If(Height < 40, 0, 4))
         If PathLogo IsNot Nothing Then
-            If _Logo.EndsWithF(".png", True) OrElse _Logo.EndsWithF(".jpg", True) OrElse _Logo.EndsWithF(".webp", True) Then
+            If _Logo.EndsWithF(".png", True) OrElse _Logo.EndsWithF(".jpg", True) OrElse _Logo.EndsWithF(".jpeg", True) OrElse _Logo.EndsWithF(".webp", True) Then
                 PathLogo.Margin = New Thickness(4, 5, 3, 5)
             Else
                 PathLogo.Margin = New Thickness(If(Height < 40, 6, 8), 8, If(Height < 40, 4, 6), 8)

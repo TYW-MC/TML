@@ -347,6 +347,9 @@
     <Compile Include="Pages\PageInstance\PageInstanceBedrockPack.xaml.vb">
       <DependentUpon>PageInstanceBedrockPack.xaml</DependentUpon>
     </Compile>
+    <Compile Include="Pages\PageInstance\PageInstanceBedrockWorld.xaml.vb">
+      <DependentUpon>PageInstanceBedrockWorld.xaml</DependentUpon>
+    </Compile>
     <Compile Include="Pages\PageInstance\PageInstanceOverall.xaml.vb">
       <DependentUpon>PageInstanceOverall.xaml</DependentUpon>
     </Compile>
@@ -692,6 +695,10 @@
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Include="Pages\PageInstance\PageInstanceBedrockPack.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="Pages\PageInstance\PageInstanceBedrockWorld.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>
