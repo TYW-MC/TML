@@ -4138,5 +4138,11 @@
  "尚未导入地图": "No maps imported yet",
  "你可以导入 .mcworld 或 .zip 格式的地图，导入后会出现在游戏的「世界」列表里。": "You can import maps in .mcworld or .zip format. Imported maps will appear in the World list in the game.",
  "地图操作": "Map Actions",
- "删除地图": "Delete Map"
+ "删除地图": "Delete Map",
+ "GDK · 需正版": "GDK · License Required",
+ "GDK 版供 Xbox Game Pass 订阅用户或已购正版的用户使用：安装与启动都会校验微软许可证，没有正版授权将无法安装或进入游戏。": "The GDK build is for Xbox Game Pass subscribers or users who own the game: both installation and launch are verified against your Microsoft license. Without a genuine license you cannot install or play it.",
+ "没有正版的话，请选择同版本号的 UWP 正式版（不带 GDK 标记）。": "If you do not own the game, pick the UWP release of the same version instead (the one without the GDK tag).",
+ "确定要下载 GDK 版吗？": "Download the GDK build anyway?",
+ "下载 GDK 版": "Download GDK Build",
+ "继续下载": "Continue"
 }

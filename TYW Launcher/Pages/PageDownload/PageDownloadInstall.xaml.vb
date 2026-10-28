@@ -101,11 +101,18 @@ Public Class PageDownloadInstall
                     }
                     Dim InfoParts As New List(Of String)
                     If Entry.ReleaseDate <> "" Then InfoParts.Add(Entry.ReleaseDate)
-                    If Entry.BuildType = "GDK" Then InfoParts.Add("GDK")
+                    If Entry.BuildType = "GDK" Then InfoParts.Add(ModLang.T("GDK · 需正版"))
                     If Entry.Variations.ContainsKey(BestArch) Then InfoParts.Add(BestArch) Else InfoParts.Add(Entry.Variations.Keys.First())
                     Item.Info = String.Join("　", InfoParts)
                     AddHandler Item.Click, Sub(sender As Object, e As MouseEventArgs)
                                                Dim Clicked As BedrockVersionEntry = CType(CType(sender, MyListItem).Tag, BedrockVersionEntry)
+                                               'GDK 版需要正版授权（Game Pass 或买断），没有正版装不上也玩不了，先提醒
+                                               If Clicked.BuildType = "GDK" Then
+                                                   If MyMsgBox(ModLang.T("GDK 版供 Xbox Game Pass 订阅用户或已购正版的用户使用：安装与启动都会校验微软许可证，没有正版授权将无法安装或进入游戏。") & vbCrLf & vbCrLf &
+                                                               ModLang.T("没有正版的话，请选择同版本号的 UWP 正式版（不带 GDK 标记）。") & vbCrLf & vbCrLf &
+                                                               ModLang.T("确定要下载 GDK 版吗？"),
+                                                               ModLang.T("下载 GDK 版"), ModLang.T("继续下载"), ModLang.T("取消"), IsWarn:=True) <> 1 Then Return
+                                               End If
                                                RunInNewThread(Sub()
                                                                   If ModBedrock.BedrockDownloadAndInstall(Clicked) Then
                                                                       '安装成功后刷新版本列表，新版本会像 Java 版一样出现在启动页
