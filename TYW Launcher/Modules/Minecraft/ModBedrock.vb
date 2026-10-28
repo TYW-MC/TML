@@ -301,9 +301,9 @@ Public Module ModBedrock
         Using P = StartProcess(Psi)
             Dim OutputTask = P.StandardOutput.ReadToEndAsync()
             Dim ErrorTask = P.StandardError.ReadToEndAsync()
-            If Not P.WaitForExit(300000) Then '最长等待 5 分钟
+            If Not P.WaitForExit(600000) Then '最长等待 10 分钟（1.7 GB 的 MSIXVC 安装本身就要一两分钟）
                 Try : P.Kill() : Catch : End Try
-                Throw New TimeoutException("基岩版安装超时（5 分钟）")
+                Throw New TimeoutException("基岩版安装超时（10 分钟）")
             End If
             Dim Output As String = OutputTask.Result & vbCrLf & ErrorTask.Result
             If P.ExitCode <> 0 Then
@@ -329,6 +329,28 @@ Public Module ModBedrock
         If InstallingBedrockVersion IsNot Nothing Then
             Hint($"正在下载安装基岩版 {InstallingBedrockVersion}，请稍候……", HintType.Blue)
             Return False
+        End If
+        'GDK 版：本机已经装了就先用起来，不必白下 1.7 GB
+        If Entry.BuildType = "GDK" Then
+            Dim Existing As BedrockGdkPackage = Nothing
+            Try
+                Existing = BedrockGdkFindPackage(If(Entry.Type = "Release", "retail", "preview"))
+            Catch ex As Exception
+                Logger.Warn(ex, "查询已安装 GDK 版失败")
+            End Try
+            If Existing IsNot Nothing Then
+                Dim Choice As Integer = 0
+                RunInUiWait(
+                    Sub()
+                        Choice = MyMsgBox($"本机已经安装了 GDK 版基岩版 {Existing.Version}，可以直接启动，不需要再下载。" & vbCrLf & vbCrLf &
+                                          $"仍然要下载 {Entry.Version} 的安装包吗？", "基岩版 GDK", "直接启动", "仍然下载", "取消")
+                    End Sub)
+                If Choice = 1 Then
+                    BedrockGdkLaunchPkg(Existing)
+                    Return False
+                End If
+                If Choice <> 2 Then Return False
+            End If
         End If
         InstallingBedrockVersion = Entry.Version
         Try
@@ -357,6 +379,15 @@ Public Module ModBedrock
                         p.Set(0.95)
                     End Sub)
                 SubLoaders.Add(New LoaderWorker("安装基岩版 " & Entry.Version, InstallWorker) With {.ProgressWeight = 5})
+            Else
+                'GDK 安装包（MSIXVC）同样可以交给系统部署器安装
+                Dim GdkInstallWorker As New RedoableWorker(
+                    Sub(c, p)
+                        p.Set(0.1)
+                        BedrockInstallGdkPackage(LocalPath)
+                        p.Set(0.95)
+                    End Sub)
+                SubLoaders.Add(New LoaderWorker("安装 GDK 版基岩版 " & Entry.Version, GdkInstallWorker) With {.ProgressWeight = 5})
             End If
             Dim Loader As New LoaderCombo(Of String)("安装基岩版 " & Entry.Version, SubLoaders)
             Loader.Start(Entry.Version)
@@ -368,18 +399,25 @@ Public Module ModBedrock
             BedrockInstanceWrite(Entry, Arch, LocalPath)
 
             If IsGdk Then
-                'GDK 版是 MSIXVC 包：系统组件装不了，但运行依赖（Gaming Services）可以由启动器自动补齐
-                Hint($"GDK 版 {Entry.Version} 下载完成，正在检查运行依赖……", HintType.Green)
+                '安装已经在任务里完成，这里只补运行依赖并提示
+                Hint($"GDK 版 {Entry.Version} 安装完成，正在检查运行依赖……", HintType.Green)
                 Dim DepReady As Boolean = BedrockEnsureGamingServices()
-                RunInUiWait(Sub()
-                                Dim DepText As String = If(DepReady, "运行所需的 Gaming Services 依赖已自动安装完成。", "Gaming Services 依赖自动安装未成功，已打开微软商店页面，请手动装一次。")
-                                If MyMsgBox($"GDK 版本 {Entry.Version} 已下载完成，并已添加到版本列表。" & vbCrLf & vbCrLf & DepText & vbCrLf &
-                                            "MSIXVC 安装包无法由系统组件直接安装，需要用 GDK 工具（wdapp install）或开源工具 LeviLauncher 部署（需要微软账户拥有基岩版权限）。" & vbCrLf & vbCrLf &
-                                            "是否打开安装包所在文件夹？", "GDK 版本下载完成", "打开文件夹", "完成") = 1 Then
-                                    StartProcess("explorer.exe", $"/select,""{LocalPath}""")
-                                End If
-                            End Sub)
-                Return False
+                Dim Installed As BedrockGdkPackage = Nothing
+                Try
+                    Installed = BedrockGdkFindPackage(If(Entry.Type = "Release", "retail", "preview"))
+                Catch ex As Exception
+                    Logger.Warn(ex, "查询 GDK 版安装结果失败")
+                End Try
+                RunInUiWait(
+                    Sub()
+                        Dim DepText As String = If(DepReady,
+                            "运行所需的 Gaming Services 依赖已就绪。",
+                            "Gaming Services 依赖没有自动装好，已打开微软商店页面，请手动装一次。")
+                        Dim VerText As String = If(Installed Is Nothing, Entry.Version, Installed.Version)
+                        MyMsgBox($"GDK 版 {VerText} 已下载并安装完成。" & vbCrLf & vbCrLf & DepText & vbCrLf & vbCrLf &
+                                 "已添加到版本列表，可以直接在启动页点「启动游戏」。", "GDK 版基岩版", "完成")
+                    End Sub)
+                Return True
             End If
 
             Hint($"基岩版 {Entry.Version} 安装完成！已添加到版本列表，可在启动页选择并启动。", HintType.Green)
@@ -735,20 +773,7 @@ Public Module ModBedrock
         End Try
     End Function
 
-    ''' <summary>
-    ''' 查询已安装的 GDK 版 Minecraft 包家族名，未安装返回空字符串。必须在工作线程调用。
-    ''' </summary>
-    Public Function BedrockGdkPackageName() As String
-        Try
-            Dim Names = RunPowerShellRead("(Get-AppxPackage -Name '*Minecraft*' | Where-Object { $_.PackageFullName -like '*Gdk*' -or $_.Name -like '*Gdk*' } | Select-Object -First 1).Name")
-            Return If(Names Is Nothing, "", Names.Trim())
-        Catch ex As Exception
-            Logger.Warn(ex, "查询 GDK 版基岩版失败")
-            Return ""
-        End Try
-    End Function
-
-    Private Function RunPowerShellRead(Command As String) As String
+    Private Function RunPowerShellRead(Command As String, Optional TimeoutMs As Integer = 15000) As String
         Dim Psi As New ProcessStartInfo With {
             .FileName = "powershell.exe",
             .Arguments = $"-NoProfile -NonInteractive -Command ""{Command}""",
@@ -759,7 +784,7 @@ Public Module ModBedrock
             .StandardOutputEncoding = Encoding.UTF8
         }
         Using P = StartProcess(Psi)
-            If Not P.WaitForExit(15000) Then
+            If Not P.WaitForExit(TimeoutMs) Then
                 Try : P.Kill() : Catch : End Try
                 Return ""
             End If
@@ -948,6 +973,273 @@ Public Module ModBedrock
                 Return ""
             End If
             Return Task.Result
+        End Using
+    End Function
+
+#End Region
+
+#Region "GDK 版安装与启动"
+
+    ''' <summary>GDK 正式版的包名（GDK 版与 UWP 版的包名不同）。</summary>
+    Public Const GdkRetailName As String = "Microsoft.MinecraftWindows"
+
+    ''' <summary>GDK 预览版的包名。</summary>
+    Public Const GdkPreviewName As String = "Microsoft.MinecraftWindowsBeta"
+
+    ''' <summary>本机已注册的一个 GDK 版基岩版包。</summary>
+    Public Class BedrockGdkPackage
+        Public Name As String = ""
+        Public PackageFullName As String = ""
+        Public FamilyName As String = ""
+        Public Version As String = ""
+        Public InstallLocation As String = ""
+        Public Aumid As String = ""
+        ''' <summary>retail 或 preview。</summary>
+        Public Channel As String = "retail"
+
+        Public ReadOnly Property Display As String
+            Get
+                Return Name & " " & Version
+            End Get
+        End Property
+
+        ''' <summary>是否以"解包目录"方式注册（不是从安装包部署的）。</summary>
+        Public ReadOnly Property IsLoose As Boolean
+            Get
+                Return InstallLocation <> "" AndAlso
+                       Not InstallLocation.StartsWithF("C:\Program Files\WindowsApps", True) AndAlso
+                       Not InstallLocation.StartsWithF("C:\XboxGames", True)
+            End Get
+        End Property
+    End Class
+
+    ''' <summary>
+    ''' 列出本机已注册的 GDK 版基岩版包。必须在工作线程调用。
+    ''' GDK 版的包名与 UWP 版（Microsoft.MinecraftUWP）完全不同，必须单独查询，
+    ''' 否则会出现"明明装了 GDK 版却识别不到"的情况。
+    ''' </summary>
+    Public Function BedrockGdkPackages() As List(Of BedrockGdkPackage)
+        Dim Result As New List(Of BedrockGdkPackage)
+        Try
+            Dim Script As String =
+                "[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false); $ErrorActionPreference='SilentlyContinue'; " &
+                "Get-AppxPackage | Where-Object { $_.Name -eq '" & GdkRetailName & "' -or $_.Name -eq '" & GdkPreviewName & "' } | ForEach-Object { " &
+                "$m = Get-AppxPackageManifest $_.PackageFullName; " &
+                "$app = $m.Package.Applications.Application; " &
+                "$id = $app.Id; if ($id -is [array]) { $id = $id[0] }; " &
+                "[Console]::Write($_.Name + '|' + $_.PackageFullName + '|' + $_.PackageFamilyName + '|' + [string]$_.Version + '|' + $_.InstallLocation + '|' + $_.PackageFamilyName + '!' + $id + '@@') }"
+            '控制台会把过长的行折成多行，这里用 @@ 作记录分隔符，先去掉换行再解析
+            Dim Raw As String = RunPowerShellRead(Script, 30000)
+            Raw = Raw.Replace(vbCrLf, "").Replace(vbCr, "").Replace(vbLf, "")
+            For Each Record In Raw.Split({"@@"}, StringSplitOptions.RemoveEmptyEntries)
+                Dim Parts As String() = Record.Trim().Split("|"c)
+                If Parts.Length < 6 OrElse Parts(0) = "" Then Continue For
+                Result.Add(New BedrockGdkPackage With {
+                    .Name = Parts(0),
+                    .PackageFullName = Parts(1),
+                    .FamilyName = Parts(2),
+                    .Version = Parts(3),
+                    .InstallLocation = Parts(4),
+                    .Aumid = Parts(5),
+                    .Channel = If(Parts(0).EndsWithF(GdkPreviewName, True), "preview", "retail")})
+            Next
+        Catch ex As Exception
+            Logger.Warn(ex, "查询 GDK 版基岩版失败")
+        End Try
+        Return Result
+    End Function
+
+    ''' <summary>按渠道找本机已注册的 GDK 包，没有则返回 Nothing。</summary>
+    Public Function BedrockGdkFindPackage(Channel As String) As BedrockGdkPackage
+        Dim List = BedrockGdkPackages()
+        Dim Matched = List.FirstOrDefault(Function(p) p.Channel = Channel)
+        If Matched Is Nothing AndAlso List.Any Then Matched = List(0)
+        Return Matched
+    End Function
+
+    ''' <summary>该目录是不是解包后的 GDK 游戏本体（含清单与主程序）。</summary>
+    Public Function BedrockGdkLooksUnpacked(Folder As String) As Boolean
+        If String.IsNullOrEmpty(Folder) Then Return False
+        Dim Path As String = PathUtils.AddSlashSuffix(Folder)
+        Return FileUtils.Exists(Path & "AppxManifest.xml") AndAlso FileUtils.Exists(Path & "Minecraft.Windows.exe")
+    End Function
+
+    ''' <summary>系统是否允许注册松散应用包（等价于是否开启开发者模式）。</summary>
+    Public Function BedrockDevModeEnabled() As Boolean
+        Try
+            Using Key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey("SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock")
+                If Key Is Nothing Then Return False
+                Return CInt(If(Key.GetValue("AllowDevelopmentWithoutDevLicense", 0), 0)) = 1
+            End Using
+        Catch ex As Exception
+            Logger.Warn(ex, "读取开发者模式状态失败")
+            Return False
+        End Try
+    End Function
+
+    ''' <summary>
+    ''' 把解包后的 GDK 游戏目录注册成系统里的应用包，等价于 wdapp 安装完成后的注册步骤。
+    ''' 注册成功后该目录就是游戏的安装位置，可以直接从启动器启动。必须在工作线程调用。
+    ''' </summary>
+    Public Function BedrockGdkRegisterFolder(Folder As String) As BedrockGdkPackage
+        If Not BedrockGdkLooksUnpacked(Folder) Then
+            Throw New Exception("这个文件夹里没有 AppxManifest.xml 与 Minecraft.Windows.exe，不是解包后的基岩版目录")
+        End If
+        If Not BedrockDevModeEnabled() Then
+            Throw New Exception("系统没有开启「开发者模式」。请到 设置 → 系统 → 开发者选项 打开「开发人员模式」后再试")
+        End If
+        Dim Manifest As String = PathUtils.AddSlashSuffix(Folder) & "AppxManifest.xml"
+        Logger.Info($"[Bedrock] 注册 GDK 包：{Manifest}")
+        Dim Script As String =
+            "[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false); " &
+            "$ErrorActionPreference='Stop'; " &
+            "try { Add-AppxPackage -Register '" & Manifest & "' -ErrorAction Stop; exit 0 } " &
+            "catch { Write-Output $_.Exception.Message; exit 1 }"
+        Dim Output As String = ""
+        Dim Code As Integer = RunPowerShellScript(Script, 600000, Output)
+        If Code <> 0 Then Throw New Exception("注册失败：" & If(Output.Trim() = "", "未知错误", Output.Trim()))
+        Dim All As List(Of BedrockGdkPackage) = BedrockGdkPackages()
+        Dim Matched As BedrockGdkPackage = All.FirstOrDefault(
+            Function(p) p.InstallLocation.TrimEnd("\"c).Equals(Folder.TrimEnd("\"c), StringComparison.OrdinalIgnoreCase))
+        '路径含中文时控制台编码可能对不上，只有一个包时直接认定是它
+        If Matched Is Nothing AndAlso All.Count = 1 Then Matched = All(0)
+        If Matched Is Nothing Then Throw New Exception("注册命令已执行，但系统里查不到 GDK 版基岩版，请查看日志")
+        Logger.Info($"[Bedrock] GDK 包注册成功：{Matched.Display}（{Matched.InstallLocation}）")
+        Return Matched
+    End Function
+
+    ''' <summary>
+    ''' 安装 GDK 版安装包（.msixvc）。Windows 部署器可以直接安装 MSIXVC，
+    ''' 但若同名应用已经用"解包目录"方式注册过，会报 0x80073CFB（不允许打包版覆盖未打包版），
+    ''' 这时先移除那个解包注册（只注销，不删除源文件）再装。必须在工作线程调用。
+    ''' </summary>
+    Public Sub BedrockInstallGdkPackage(Path As String)
+        If Not FileUtils.Exists(Path) Then Throw New FileNotFoundException("安装包不存在", Path)
+        Logger.Info($"[Bedrock] 安装 GDK 安装包：{Path}")
+        Try
+            BedrockInstallAppx(Path)
+            Return
+        Catch ex As Exception
+            If Not IsPackageNameConflict(ex.Message) Then Throw
+            Logger.Info("[Bedrock] 同名应用已有解包注册，先移除再安装：" & ex.Message)
+        End Try
+        Dim Loose As New List(Of BedrockGdkPackage)
+        Try
+            Loose = BedrockGdkPackages().Where(Function(p) p.IsLoose).ToList()
+        Catch ex As Exception
+            Logger.Warn(ex, "查询解包注册失败")
+        End Try
+        If Not Loose.Any Then
+            Throw New Exception("系统里已经装了同名应用且无法自动移除，请先在 设置 → 应用 → 已安装的应用 里卸载它再重试")
+        End If
+        For Each Pkg In Loose
+            Logger.Info($"[Bedrock] 移除解包注册：{Pkg.PackageFullName}（文件保留在 {Pkg.InstallLocation}）")
+            Dim Output As String = ""
+            Dim Code As Integer = RunPowerShellScript(
+                "$ErrorActionPreference='Stop'; Remove-AppxPackage -Package '" & Pkg.PackageFullName & "'; exit 0", 180000, Output)
+            If Code <> 0 Then Logger.Warn("[Bedrock] 移除解包注册失败：" & Output)
+        Next
+        BedrockInstallAppx(Path)
+    End Sub
+
+    ''' <summary>安装失败的报错是不是"同名应用已存在（未打包版本）"这一类冲突。</summary>
+    Private Function IsPackageNameConflict(Message As String) As Boolean
+        If String.IsNullOrEmpty(Message) Then Return False
+        Dim Upper As String = Message.ToUpperInvariant()
+        Return Upper.Contains("80073CFB") OrElse Message.Contains("未打包") OrElse Upper.Contains("UNPACKAGED")
+    End Function
+
+    ''' <summary>在版本目录里找已下载的 GDK 安装包，找不到返回空字符串。</summary>
+    Public Function BedrockFindLocalPackage(Folder As String) As String
+        If Not DirectoryUtils.Exists(Folder) Then Return ""
+        Dim Files = IO.Directory.GetFiles(Folder, "*.msixvc")
+        If Files.Length = 0 Then Files = IO.Directory.GetFiles(Folder, "*.appx")
+        If Files.Length = 0 Then Return ""
+        Return Files.OrderByDescending(Function(f) New IO.FileInfo(f).Length).First()
+    End Function
+
+    ''' <summary>启动一个已注册的 GDK 版基岩版。</summary>
+    Public Sub BedrockGdkLaunchPkg(Pkg As BedrockGdkPackage)
+        Dim Target As String = If(String.IsNullOrEmpty(Pkg.Aumid), Pkg.FamilyName & "!App", Pkg.Aumid)
+        Logger.Info($"[Bedrock] 启动 GDK 版：{Pkg.Display}（{Target}）")
+        StartProcess("explorer.exe", "shell:AppsFolder\" & Target)
+    End Sub
+
+    ''' <summary>
+    ''' 在本机常见位置寻找解包后的 GDK 游戏目录（含 AppxManifest.xml 与 Minecraft.Windows.exe）。
+    ''' 找到的目录可以直接注册安装。只读扫描，不会修改任何文件。必须在工作线程调用。
+    ''' </summary>
+    Public Function BedrockGdkScanUnpacked() As List(Of String)
+        Dim Roots As New List(Of String)
+        For Each Special In {Environment.SpecialFolder.Desktop, Environment.SpecialFolder.UserProfile,
+                             Environment.SpecialFolder.ApplicationData, Environment.SpecialFolder.ProgramFiles}
+            Try
+                Dim Path As String = Environment.GetFolderPath(Special)
+                If Path <> "" Then Roots.Add(Path)
+            Catch
+            End Try
+        Next
+        Roots.Add("C:\XboxGames")
+        Try
+            Roots.Add(McFolderSelected)
+        Catch
+        End Try
+        '已注册包所在目录的旁边，往往还放着别的解包版本
+        Try
+            For Each Pkg In BedrockGdkPackages()
+                If Pkg.InstallLocation <> "" Then Roots.Add(IO.Path.GetDirectoryName(Pkg.InstallLocation.TrimEnd("\"c)))
+            Next
+        Catch
+        End Try
+        Dim Result As New List(Of String)
+        Dim Visited As Integer = 0
+        For Each Root In Roots.Where(Function(r) Not String.IsNullOrEmpty(r)).Distinct()
+            If DirectoryUtils.Exists(Root) Then ScanUnpackedFolder(Root, 0, Result, Visited)
+        Next
+        Return Result.Distinct().ToList()
+    End Function
+
+    Private Sub ScanUnpackedFolder(Folder As String, Depth As Integer, Result As List(Of String), ByRef Visited As Integer)
+        If Depth > 4 OrElse Visited > 3000 OrElse Result.Count >= 10 Then Return
+        Visited += 1
+        Try
+            If BedrockGdkLooksUnpacked(Folder) Then
+                Result.Add(Folder)
+                Return
+            End If
+            For Each SubDir In IO.Directory.GetDirectories(Folder)
+                Dim Name As String = IO.Path.GetFileName(SubDir)
+                If Name.StartsWith(".") OrElse Name = "node_modules" OrElse Name = "WindowsApps" OrElse
+                   Name = "Packages" OrElse Name = "System Volume Information" OrElse Name = "$Recycle.Bin" Then Continue For
+                ScanUnpackedFolder(SubDir, Depth + 1, Result, Visited)
+            Next
+        Catch
+            '无权限访问的目录直接跳过
+        End Try
+    End Sub
+
+    ''' <summary>运行一段 PowerShell 脚本并返回退出码，输出写入 Output。</summary>
+    Private Function RunPowerShellScript(Script As String, TimeoutMs As Integer, ByRef Output As String) As Integer
+        Dim Psi As New ProcessStartInfo With {
+            .FileName = "powershell.exe",
+            .Arguments = "-NoProfile -NonInteractive -Command """ & Script & """",
+            .UseShellExecute = False,
+            .CreateNoWindow = True,
+            .RedirectStandardOutput = True,
+            .RedirectStandardError = True,
+            .StandardOutputEncoding = Encoding.UTF8,
+            .StandardErrorEncoding = Encoding.UTF8
+        }
+        Using P = StartProcess(Psi)
+            Dim OutTask = P.StandardOutput.ReadToEndAsync()
+            Dim ErrTask = P.StandardError.ReadToEndAsync()
+            If Not P.WaitForExit(TimeoutMs) Then
+                Try : P.Kill() : Catch : End Try
+                Output = "命令执行超时"
+                Return -1
+            End If
+            Output = (OutTask.Result & vbCrLf & ErrTask.Result).Trim()
+            Return P.ExitCode
         End Using
     End Function
 

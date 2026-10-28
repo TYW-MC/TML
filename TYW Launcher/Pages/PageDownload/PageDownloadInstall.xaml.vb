@@ -101,7 +101,7 @@ Public Class PageDownloadInstall
                     }
                     Dim InfoParts As New List(Of String)
                     If Entry.ReleaseDate <> "" Then InfoParts.Add(Entry.ReleaseDate)
-                    If Entry.BuildType = "GDK" Then InfoParts.Add("GDK（需 LeviLauncher）")
+                    If Entry.BuildType = "GDK" Then InfoParts.Add("GDK")
                     If Entry.Variations.ContainsKey(BestArch) Then InfoParts.Add(BestArch) Else InfoParts.Add(Entry.Variations.Keys.First())
                     Item.Info = String.Join("　", InfoParts)
                     AddHandler Item.Click, Sub(sender As Object, e As MouseEventArgs)

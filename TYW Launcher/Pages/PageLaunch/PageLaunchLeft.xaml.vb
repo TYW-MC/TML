@@ -868,34 +868,142 @@ ExitRefresh:
     End Sub
 
     ''' <summary>
-    ''' GDK 版启动：先确保 Gaming Services 依赖，再尝试启动已安装的 GDK 包。
-    ''' MSIXVC 安装包本身需要 GDK 工具或第三方工具部署，启动器只负责下载与依赖。
+    ''' GDK 版启动。GDK 版是"松散文件 + 清单注册"的形态，启动器可以自己完成安装：
+    ''' 1. 版本目录里已经放了解包好的游戏文件 → 就地注册安装后启动；
+    ''' 2. 本机已注册 GDK 包 → 直接启动；
+    ''' 3. 本机别处有解包好的目录 → 提示一键注册安装；
+    ''' 4. 都没有 → 让用户指定解包目录。
     ''' </summary>
     Private Sub BedrockLaunchGdk(Instance As McInstance)
-        Hint("正在检查 GDK 版运行依赖，缺少的会自动安装……")
+        Hint("正在检查 GDK 版基岩版……")
         RunInNewThread(
             Sub()
-                Dim DepReady As Boolean = ModBedrock.BedrockEnsureGamingServices()
-                Dim PackageName As String = ModBedrock.BedrockGdkPackageName()
-                RunInUi(
-                    Sub()
-                        If PackageName <> "" Then
-                            If MyMsgBox($"检测到本机已安装 GDK 版基岩版：{PackageName}。{vbCrLf}{vbCrLf}是否立即启动？",
-                                        "启动基岩版", "启动", "取消") = 1 Then
-                                StartProcess("explorer.exe", "shell:AppsFolder\" & PackageName & "!App")
-                            End If
-                            Return
-                        End If
-                        Dim Msg As String = $"GDK 版 {Instance.BedrockVersionText} 的安装包已下载到该版本的 bedrock 文件夹中。" & vbCrLf & vbCrLf &
-                                            If(DepReady, "运行所需的 Gaming Services 依赖已自动安装完成。", "Gaming Services 依赖自动安装未成功，已打开微软商店页面，请手动装一次。") & vbCrLf &
-                                            "MSIXVC 格式的安装包无法由系统组件安装，需要用 GDK 工具（wdapp install）或 LeviLauncher 部署后再启动。" & vbCrLf & vbCrLf &
-                                            "是否打开安装包所在文件夹？"
-                        If MyMsgBox(Msg, "GDK 版基岩版", "打开文件夹", "关闭") = 1 Then
-                            Dim Folder As String = Instance.PathVersion & "bedrock\"
-                            StartProcess("explorer.exe", Chr(34) & Folder.TrimEnd("\"c) & Chr(34))
-                        End If
-                    End Sub)
+                '1. 本机已经装好 GDK 版：直接启动
+                Dim Packages As List(Of ModBedrock.BedrockGdkPackage) = Nothing
+                Try
+                    Packages = ModBedrock.BedrockGdkPackages()
+                Catch ex As Exception
+                    Logger.Warn(ex, "查询 GDK 版失败")
+                    Packages = New List(Of ModBedrock.BedrockGdkPackage)
+                End Try
+                If Packages.Any Then
+                    RunInUi(Sub() BedrockLaunchGdkUi(Instance, False, Packages, Nothing))
+                    Return
+                End If
+                '2. 版本目录里有下载好的安装包：直接安装
+                Dim PkgFile As String = ModBedrock.BedrockFindLocalPackage(Instance.PathVersion & "bedrock\")
+                If PkgFile <> "" Then
+                    RunInUi(Sub() BedrockGdkInstallAndLaunchPackage(PkgFile, Instance))
+                    Return
+                End If
+                '3. 版本目录里是解包好的游戏本体：就地注册
+                Dim LocalFolder As String = Instance.PathVersion & "bedrock\"
+                If ModBedrock.BedrockGdkLooksUnpacked(LocalFolder) Then
+                    RunInUi(Sub() BedrockGdkInstallAndLaunch(LocalFolder, Instance))
+                    Return
+                End If
+                '4. 都没有：补齐依赖并看看本机别处有没有解包目录
+                Dim DepReady As Boolean = False
+                Dim Unpacked As List(Of String) = Nothing
+                Try
+                    DepReady = ModBedrock.BedrockEnsureGamingServices()
+                    Unpacked = ModBedrock.BedrockGdkScanUnpacked()
+                Catch ex As Exception
+                    Logger.Warn(ex, "扫描 GDK 解包目录失败")
+                End Try
+                RunInUi(Sub() BedrockLaunchGdkUi(Instance, DepReady, Packages, Unpacked))
             End Sub, "Bedrock GDK Launch")
+    End Sub
+
+    ''' <summary>安装版本目录里已下载的 GDK 安装包，装好后立即启动。</summary>
+    Private Sub BedrockGdkInstallAndLaunchPackage(Path As String, Instance As McInstance)
+        Hint("正在安装 GDK 版基岩版，可能需要一两分钟……", HintType.Blue)
+        RunInNewThread(
+            Sub()
+                Try
+                    ModBedrock.BedrockInstallGdkPackage(Path)
+                    Dim Pkg = ModBedrock.BedrockGdkFindPackage(If(Instance.BedrockChannel = "preview", "preview", "retail"))
+                    RunInUi(
+                        Sub()
+                            Hint($"GDK 版 {If(Pkg Is Nothing, Instance.BedrockVersionText, Pkg.Version)} 安装完成，正在启动……", HintType.Green)
+                            If Pkg IsNot Nothing Then ModBedrock.BedrockGdkLaunchPkg(Pkg)
+                        End Sub)
+                Catch ex As Exception
+                    Logger.Error(ex, "安装 GDK 版失败")
+                    RunInUi(Sub() MyMsgBox("安装 GDK 版失败：" & vbCrLf & ex.Message, "安装 GDK 版", "确定"))
+                End Try
+            End Sub, "Bedrock GDK Install")
+    End Sub
+
+    ''' <summary>GDK 版启动的界面分支：按"已装 / 扫到解包目录 / 都没有"三种情况处理。</summary>
+    Private Sub BedrockLaunchGdkUi(Instance As McInstance, DepReady As Boolean,
+                                   Packages As List(Of ModBedrock.BedrockGdkPackage),
+                                   Unpacked As List(Of String))
+        '1. 本机已注册 GDK 版：直接启动
+        If Packages IsNot Nothing AndAlso Packages.Any Then
+            Dim Channel As String = If(Instance.BedrockChannel = "preview", "preview", "retail")
+            Dim Pkg = Packages.FirstOrDefault(Function(p) p.Channel = Channel)
+            If Pkg Is Nothing Then Pkg = Packages(0)
+            If Pkg.Version <> Instance.BedrockVersionText Then
+                Hint($"本机安装的是 GDK 版 {Pkg.Version}，将启动这个版本（{Instance.BedrockVersionText} 的安装包仅作离线保留）", HintType.Blue)
+            Else
+                Hint($"正在启动 GDK 版 {Pkg.Version}……", HintType.Blue)
+            End If
+            ModBedrock.BedrockGdkLaunchPkg(Pkg)
+            Return
+        End If
+        '2. 本机有解包好的目录：一键注册安装
+        If Unpacked IsNot Nothing AndAlso Unpacked.Any Then
+            Dim Msg As String = "本机还没有注册 GDK 版基岩版，但发现了解包好的游戏目录：" & vbCrLf & "　" & Unpacked(0) &
+                                If(Unpacked.Count > 1, vbCrLf & "　（另外还有 " & (Unpacked.Count - 1) & " 个）", "") & vbCrLf & vbCrLf &
+                                "启动器可以直接把它注册安装到系统里，装好后马上就能启动。"
+            Select Case MyMsgBox(Msg, "安装 GDK 版", "安装并启动", "选择其它目录", "取消")
+                Case 1
+                    BedrockGdkInstallAndLaunch(Unpacked(0), Instance)
+                Case 2
+                    BedrockGdkPickFolder(Instance)
+            End Select
+            Return
+        End If
+        '3. 什么都没有
+        Dim Text As String = "本机还没有安装 GDK 版基岩版，这个版本目录里也没有下载好的安装包。" & vbCrLf & vbCrLf &
+                             "可以到「下载 → 原版游戏 → 基岩版」里安装对应版本，启动器会自动下载并安装。" & vbCrLf &
+                             "也可以把一个解包好的游戏文件夹（含 AppxManifest.xml 与 Minecraft.Windows.exe）交给启动器，它会注册安装后直接启动。"
+        Select Case MyMsgBox(Text, "GDK 版基岩版", "选择解包文件夹", "打开版本目录", "取消")
+            Case 1
+                BedrockGdkPickFolder(Instance)
+            Case 2
+                StartProcess("explorer.exe", Chr(34) & Instance.PathVersion.TrimEnd("\"c) & Chr(34))
+        End Select
+    End Sub
+
+    ''' <summary>让用户指定一个解包好的 GDK 游戏目录。</summary>
+    Private Sub BedrockGdkPickFolder(Instance As McInstance)
+        Dim Dialog As New System.Windows.Forms.FolderBrowserDialog With {
+            .Description = "选择解包后的基岩版游戏文件夹（里面应有 AppxManifest.xml 与 Minecraft.Windows.exe）",
+            .ShowNewFolderButton = False
+        }
+        If Dialog.ShowDialog() <> System.Windows.Forms.DialogResult.OK Then Return
+        BedrockGdkInstallAndLaunch(Dialog.SelectedPath, Instance)
+    End Sub
+
+    ''' <summary>把指定目录注册成系统里的 GDK 版基岩版，成功后立即启动。</summary>
+    Private Sub BedrockGdkInstallAndLaunch(Folder As String, Instance As McInstance)
+        Hint("正在把游戏目录注册为系统应用，请稍候……", HintType.Blue)
+        RunInNewThread(
+            Sub()
+                Try
+                    Dim Pkg = ModBedrock.BedrockGdkRegisterFolder(Folder)
+                    RunInUi(
+                        Sub()
+                            Hint($"GDK 版 {Pkg.Version} 安装完成，正在启动……", HintType.Green)
+                            ModBedrock.BedrockGdkLaunchPkg(Pkg)
+                        End Sub)
+                Catch ex As Exception
+                    Logger.Error(ex, "注册 GDK 版失败")
+                    RunInUi(Sub() MyMsgBox("安装 GDK 版失败：" & vbCrLf & ex.Message, "安装 GDK 版", "确定"))
+                End Try
+            End Sub, "Bedrock GDK Register")
     End Sub
 
     ''' <summary>检查 Xbox 登录状态与安装状态后启动指定的基岩版渠道。</summary>
