@@ -372,7 +372,7 @@ Public Module ModBedrock
                 Hint($"GDK 版 {Entry.Version} 下载完成，正在检查运行依赖……", HintType.Green)
                 Dim DepReady As Boolean = BedrockEnsureGamingServices()
                 RunInUiWait(Sub()
-                                Dim DepText As String = If(DepReady, "运行所需的 Gaming Services 依赖已就绪。", "Gaming Services 依赖尚未装好，请先在微软商店安装。")
+                                Dim DepText As String = If(DepReady, "运行所需的 Gaming Services 依赖已自动安装完成。", "Gaming Services 依赖自动安装未成功，已打开微软商店页面，请手动装一次。")
                                 If MyMsgBox($"GDK 版本 {Entry.Version} 已下载完成，并已添加到版本列表。" & vbCrLf & vbCrLf & DepText & vbCrLf &
                                             "MSIXVC 安装包无法由系统组件直接安装，需要用 GDK 工具（wdapp install）或开源工具 LeviLauncher 部署（需要微软账户拥有基岩版权限）。" & vbCrLf & vbCrLf &
                                             "是否打开安装包所在文件夹？", "GDK 版本下载完成", "打开文件夹", "完成") = 1 Then
@@ -768,37 +768,187 @@ Public Module ModBedrock
     End Function
 
     ''' <summary>
-    ''' 确保 Gaming Services 已安装：缺失时用 winget 从微软商店安装，失败则打开商店页面。
+    ''' 确保 Gaming Services 已安装：缺失时全自动安装（winget 多个源轮试），
+    ''' 下载与安装过程作为任务显示在右下角的任务列表里，不需要用户手动去商店点安装。
     ''' 必须在工作线程调用。返回是否已就绪。
     ''' </summary>
     Public Function BedrockEnsureGamingServices() As Boolean
         If BedrockGamingServicesVersion() <> "" Then Return True
-        Hint("正在安装 GDK 版所需的 Gaming Services 依赖……", HintType.Blue)
-        Logger.Info("[Bedrock] 未找到 Gaming Services，尝试通过 winget 安装")
+        Logger.Info("[Bedrock] 未找到 Gaming Services，开始自动安装依赖")
+        Dim Ready As Boolean = False
+        Dim Worker As New RedoableWorker(
+            Sub(c, p)
+                Ready = InstallGamingServices(Sub(Value) p.Set(Value))
+                p.Set(1)
+            End Sub)
+        Dim Loader As New LoaderCombo(Of Boolean)("安装 GDK 依赖 Gaming Services",
+            New List(Of LoaderBase) From {New LoaderWorker("安装 GDK 依赖 Gaming Services", Worker)})
+        Loader.Start(True)
+        LoaderTaskbarAdd(Loader)
         Try
-            Dim Psi As New ProcessStartInfo With {
-                .FileName = "winget",
-                .Arguments = "install --id 9MWPM2CQNLHN --source msstore --accept-package-agreements --accept-source-agreements --disable-interactivity",
-                .UseShellExecute = False,
-                .CreateNoWindow = True,
-                .RedirectStandardOutput = True,
-                .RedirectStandardError = True,
-                .StandardOutputEncoding = Encoding.UTF8
-            }
-            Using P = StartProcess(Psi)
-                P.StandardOutput.ReadToEnd() '不等待输出内容，仅避免管道阻塞
-                P.WaitForExit(600000)
-            End Using
-        Catch ex As Exception
-            Logger.Warn(ex, "通过 winget 安装 Gaming Services 失败")
+            FrmMain.BtnExtraDownload.ShowRefresh()
+        Catch
         End Try
-        If BedrockGamingServicesVersion() <> "" Then
-            Hint("Gaming Services 依赖安装完成", HintType.Green)
-            Return True
+        Loader.WaitForExit()
+        If Ready Then
+            Hint("GDK 依赖 Gaming Services 已安装完成", HintType.Green)
+        Else
+            Hint("Gaming Services 未能自动安装，详见日志", HintType.Red)
         End If
-        Hint("Gaming Services 未能自动安装，正在打开微软商店页面……", HintType.Red)
+        Return Ready
+    End Function
+
+    ''' <summary>
+    ''' 自动安装 Gaming Services：依次尝试 winget 的 msstore 源与 winget 源，
+    ''' 失败后尝试用 PowerShell 直接注册商店包，全部失败才退回到打开商店页面。
+    ''' Report 用于回报进度（0~1），由调用方接到任务栏进度上。
+    ''' </summary>
+    Private Function InstallGamingServices(Report As Action(Of Double)) As Boolean
+        Dim Attempts As New List(Of String) From {
+            "install --id 9MWPM2CQNLHN --source msstore --accept-package-agreements --accept-source-agreements --disable-interactivity",
+            "install --id 9MWPM2CQNLHN --source msstore --accept-package-agreements --accept-source-agreements --disable-interactivity --force",
+            "install --id Microsoft.GamingServices --source winget --accept-package-agreements --accept-source-agreements --disable-interactivity"
+        }
+        Dim HasWinget As Boolean = WingetAvailable()
+        If HasWinget Then
+            Dim Slice As Double = 0.85 / Attempts.Count
+            For i = 0 To Attempts.Count - 1
+                Dim Base As Double = Slice * i
+                Report(Base + 0.01)
+                Dim Code As Integer = RunWinget(Attempts(i), Sub(Ratio) Report(Base + Slice * Ratio))
+                'winget 返回 0 不代表包一定装好（商店包有时异步），统一以实际注册结果为准
+                If WaitGamingServices(20) Then
+                    Logger.Info($"[Bedrock] Gaming Services 安装成功（第 {i + 1} 次尝试，退出码 {Code}）")
+                    Return True
+                End If
+                Logger.Warn($"[Bedrock] Gaming Services 第 {i + 1} 次尝试未成功（退出码 {Code}）")
+            Next
+        Else
+            Logger.Warn("[Bedrock] 未找到 winget，跳过 winget 安装")
+        End If
+        '兜底：用 PowerShell 走一遍商店安装接口（部分系统上 winget 没有 msstore 源）
+        Try
+            Report(0.9)
+            Logger.Info("[Bedrock] 尝试通过 PowerShell 注册 Gaming Services")
+            RunPowerShellRead("$ErrorActionPreference='Stop'; Add-AppxPackage -Register (Get-ChildItem ""$env:ProgramFiles\WindowsApps"" -Filter 'Microsoft.GamingServices*' -ErrorAction SilentlyContinue | Select-Object -First 1).FullName -DisableDevelopmentMode -ErrorAction SilentlyContinue")
+            If WaitGamingServices(10) Then Return True
+        Catch ex As Exception
+            Logger.Warn(ex, "PowerShell 注册 Gaming Services 失败")
+        End Try
+        Report(1)
+        '实在装不上才打开商店页面，避免完全无法启动
+        Logger.Warn("[Bedrock] Gaming Services 自动安装全部失败，打开商店页面")
         StartProcess("explorer.exe", "ms-windows-store://pdp/?ProductId=9MWPM2CQNLHN")
         Return False
+    End Function
+
+    ''' <summary>轮询等待 Gaming Services 注册完成。</summary>
+    Private Function WaitGamingServices(Seconds As Integer) As Boolean
+        For i = 1 To Seconds
+            Thread.Sleep(1000)
+            If BedrockGamingServicesVersion() <> "" Then Return True
+        Next
+        Return False
+    End Function
+
+    ''' <summary>winget 是否可用。</summary>
+    Private Function WingetAvailable() As Boolean
+        Try
+            Dim Output As String = RunProcessRead("winget", "--version", 30000)
+            Return Output.Trim() <> "" AndAlso Not Output.Contains("无法将") AndAlso
+                   Not Output.Contains("not recognized") AndAlso Not Output.Contains("不是内部或外部命令")
+        Catch ex As Exception
+            Logger.Warn(ex, "检测 winget 失败")
+            Return False
+        End Try
+    End Function
+
+    ''' <summary>
+    ''' 运行 winget 并把它的百分比进度翻译成 0~1 回报（解析不到百分比时按时间缓慢推进）。
+    ''' 返回进程退出码。
+    ''' </summary>
+    Private Function RunWinget(Arguments As String, Report As Action(Of Double)) As Integer
+        Dim Psi As New ProcessStartInfo With {
+            .FileName = "winget",
+            .Arguments = Arguments,
+            .UseShellExecute = False,
+            .CreateNoWindow = True,
+            .RedirectStandardOutput = True,
+            .RedirectStandardError = True,
+            .StandardOutputEncoding = Encoding.UTF8,
+            .StandardErrorEncoding = Encoding.UTF8
+        }
+        Dim Buffer As New Text.StringBuilder
+        Using Proc = StartProcess(Psi)
+            Dim Reader As New Thread(
+                Sub()
+                    Try
+                        Dim Chunk(511) As Char
+                        Dim Count As Integer = Proc.StandardOutput.Read(Chunk, 0, Chunk.Length)
+                        While Count > 0
+                            SyncLock Buffer
+                                Buffer.Append(Chunk, 0, Count)
+                                If Buffer.Length > 2000 Then Buffer.Remove(0, Buffer.Length - 2000)
+                            End SyncLock
+                            Count = Proc.StandardOutput.Read(Chunk, 0, Chunk.Length)
+                        End While
+                    Catch
+                    End Try
+                End Sub) With {.IsBackground = True}
+            Reader.Start()
+            Dim Started As Date = Now
+            Dim Deadline As Date = Started.AddMinutes(10)
+            Dim LastPercent As Integer = -1
+            While Not Proc.HasExited
+                If Now > Deadline Then
+                    Try : Proc.Kill() : Catch : End Try
+                    Exit While
+                End If
+                Thread.Sleep(300)
+                Dim Snapshot As String
+                SyncLock Buffer
+                    Snapshot = Buffer.ToString()
+                End SyncLock
+                Dim Match = System.Text.RegularExpressions.Regex.Match(Snapshot, "(\d{1,3})\s*%")
+                If Match.Success Then
+                    Dim Percent As Integer
+                    If Integer.TryParse(Match.Groups(1).Value, Percent) AndAlso Percent <> LastPercent Then
+                        LastPercent = Percent
+                        Report(Math.Min(0.99, Math.Max(0.02, Percent / 100.0)))
+                    End If
+                Else
+                    'winget 没打印百分比时，按时间给一个不超过 0.6 的保守进度，避免进度条卡死
+                    Dim Seconds As Double = (Now - Started).TotalSeconds
+                    Report(Math.Min(0.6, 0.05 + Seconds / 300.0))
+                End If
+            End While
+            Try
+                Proc.WaitForExit(5000)
+            Catch
+            End Try
+            Return Proc.ExitCode
+        End Using
+    End Function
+
+    ''' <summary>运行一个命令并读取标准输出（不弹窗口）。</summary>
+    Private Function RunProcessRead(FileName As String, Arguments As String, TimeoutMs As Integer) As String
+        Dim Psi As New ProcessStartInfo With {
+            .FileName = FileName,
+            .Arguments = Arguments,
+            .UseShellExecute = False,
+            .CreateNoWindow = True,
+            .RedirectStandardOutput = True,
+            .RedirectStandardError = True,
+            .StandardOutputEncoding = Encoding.UTF8
+        }
+        Using P = StartProcess(Psi)
+            Dim Task = P.StandardOutput.ReadToEndAsync()
+            If Not P.WaitForExit(TimeoutMs) Then
+                Try : P.Kill() : Catch : End Try
+                Return ""
+            End If
+            Return Task.Result
+        End Using
     End Function
 
 #End Region

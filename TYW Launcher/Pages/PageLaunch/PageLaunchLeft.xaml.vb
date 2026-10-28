@@ -872,7 +872,7 @@ ExitRefresh:
     ''' MSIXVC 安装包本身需要 GDK 工具或第三方工具部署，启动器只负责下载与依赖。
     ''' </summary>
     Private Sub BedrockLaunchGdk(Instance As McInstance)
-        Hint("正在检查 GDK 版运行依赖……")
+        Hint("正在检查 GDK 版运行依赖，缺少的会自动安装……")
         RunInNewThread(
             Sub()
                 Dim DepReady As Boolean = ModBedrock.BedrockEnsureGamingServices()
@@ -887,7 +887,7 @@ ExitRefresh:
                             Return
                         End If
                         Dim Msg As String = $"GDK 版 {Instance.BedrockVersionText} 的安装包已下载到该版本的 bedrock 文件夹中。" & vbCrLf & vbCrLf &
-                                            If(DepReady, "运行所需的 Gaming Services 依赖已就绪。", "Gaming Services 依赖尚未安装成功，请先在微软商店安装。") & vbCrLf &
+                                            If(DepReady, "运行所需的 Gaming Services 依赖已自动安装完成。", "Gaming Services 依赖自动安装未成功，已打开微软商店页面，请手动装一次。") & vbCrLf &
                                             "MSIXVC 格式的安装包无法由系统组件安装，需要用 GDK 工具（wdapp install）或 LeviLauncher 部署后再启动。" & vbCrLf & vbCrLf &
                                             "是否打开安装包所在文件夹？"
                         If MyMsgBox(Msg, "GDK 版基岩版", "打开文件夹", "关闭") = 1 Then
