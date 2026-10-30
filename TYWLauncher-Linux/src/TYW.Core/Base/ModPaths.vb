@@ -13,9 +13,10 @@ Public Module ModPaths
         If(Environment.GetEnvironmentVariable("TYW_DATA_DIR"),
            Path.Combine(Home, ".local", "share", "TYWLauncher"))
 
-    ''' <summary>游戏目录：~/.minecraft</summary>
+    ''' <summary>游戏目录：默认 ~/.minecraft，可用 TYW_MC_DIR 覆盖</summary>
     Public ReadOnly McFolder As String =
-        Path.Combine(Home, ".minecraft")
+        If(Environment.GetEnvironmentVariable("TYW_MC_DIR"),
+           Path.Combine(Home, ".minecraft"))
 
     Public ReadOnly LogDir As String = Path.Combine(Root, "Log")
     Public ReadOnly CacheDir As String = Path.Combine(Root, "Cache")

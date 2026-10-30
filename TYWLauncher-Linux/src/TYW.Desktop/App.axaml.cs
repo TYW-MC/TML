@@ -11,6 +11,10 @@ public class App : Application
 
     public override void OnFrameworkInitializationCompleted()
     {
+        TYW.ModPaths.EnsureAll();
+        TYW.ModSettings.Load();
+        TYW.Desktop.Views.StaticPage.ApplyMirror();
+
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             desktop.MainWindow = new MainWindow();

@@ -72,5 +72,26 @@
                    FontSize="11" Foreground="{StaticResource ColorBrushGray3}" />
       </Grid>
     </Grid>
+
+    <!-- 启动中：对应 PageLaunchLeft 的 PanLaunching（进度环 + 阶段文字 + 取消） -->
+    <Grid x:Name="PanLaunching" IsVisible="False" Opacity="0" RenderTransformOrigin="0.5,0.5">
+      <Grid.RenderTransform>
+        <TranslateTransform />
+      </Grid.RenderTransform>
+      <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+        <Grid Width="76" Height="76" HorizontalAlignment="Center">
+          <Ellipse Width="76" Height="76" Stroke="{StaticResource ColorBrushGray6}" StrokeThickness="5" />
+          <Path x:Name="PathProgress" Stroke="{StaticResource ColorBrush1}" StrokeThickness="5"
+                StrokeLineCap="Round" StrokeJoin="Round" />
+          <TextBlock x:Name="LabPercent" HorizontalAlignment="Center" VerticalAlignment="Center"
+                     FontSize="14" FontWeight="Bold" Foreground="{StaticResource ColorBrush1}" Text="0%" />
+        </Grid>
+        <TextBlock x:Name="LabStage" HorizontalAlignment="Center" FontSize="12" Margin="0,14,0,0"
+                   Foreground="{StaticResource ColorBrushGray2}" TextWrapping="Wrap"
+                   TextAlignment="Center" MaxWidth="250" Text="正在启动" />
+      </StackPanel>
+      <ctrl:PclButton x:Name="BtnCancelLaunch" Text="取消启动" Height="32" Margin="20,0"
+                      VerticalAlignment="Bottom" />
+    </Grid>
   </Grid>
 </UserControl>

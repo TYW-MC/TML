@@ -1,0 +1,492 @@
+Imports System.IO
+Imports System.Net
+Imports System.Net.Http
+Imports System.Text.Json
+Imports System.Threading
+Imports System.Threading.Tasks
+
+''' <summary>版本清单里的一项。</summary>
+Public Class McVersionSummary
+    Public Property Id As String = ""
+    Public Property Type As String = ""
+    Public Property ReleaseTime As String = ""
+    Public Property Url As String = ""
+End Class
+
+''' <summary>
+''' 原版游戏下载。对应 Windows 版 ModDownload 的原版安装部分。
+''' 全部走 BMCLAPI 镜像（国内直连 Mojang 会超时），镜像不可用时自动回退官方源。
+''' </summary>
+Public Module ModDownload
+
+    Private ReadOnly Handler As New HttpClientHandler With {
+        .AutomaticDecompression = DecompressionMethods.All,
+        .MaxConnectionsPerServer = 64
+    }
+
+    Public ReadOnly Client As HttpClient = CreateClient()
+
+    Private Function CreateClient() As HttpClient
+        Dim c As New HttpClient(Handler)
+        c.Timeout = Timeout.InfiniteTimeSpan   ' 由每次请求自己控制超时
+        ' 资源文件又多又小，走 HTTP/2 多路复用可以省掉大量 TLS 握手
+        c.DefaultRequestVersion = New Version(2, 0)
+        c.DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrLower
+        Return c
+    End Function
+
+    ''' <summary>镜像地址，可在设置里改。</summary>
+    Public Property Mirror As String = "https://bmclapi2.bangbang93.com"
+
+    ''' <summary>官方源。镜像整体不可用时自动切到这里。</summary>
+    Public Const OfficialBase As String = "https://launchermeta.mojang.com"
+
+    Private _active As String = Nothing
+
+    ''' <summary>
+    ''' 当前实际使用的源。首次为镜像，一旦镜像整体失败就切到官方并保持，
+    ''' 避免每个文件都要先等一次超时。
+    ''' </summary>
+    Public ReadOnly Property Active As String
+        Get
+            If String.IsNullOrEmpty(_active) Then _active = LoadRememberedSource()
+            Return _active
+        End Get
+    End Property
+
+    Private Function LoadRememberedSource() As String
+        If ModSettings.GetBool("UseOfficialSource") Then Return OfficialBase
+        If ModSettings.GetString("SourceLastGood", "") = "official" Then
+            Dim ts As Long = 0
+            Long.TryParse(ModSettings.GetString("SourceLastGoodTime", "0"), ts)
+            ' 一天内有效，之后重新试一次镜像（镜像恢复的话速度更好）
+            If DateTimeOffset.UtcNow.ToUnixTimeSeconds() - ts < 86400 Then Return OfficialBase
+        End If
+        Return Mirror
+    End Function
+
+    Private Sub RememberSource(kind As String)
+        ModSettings.SetValue("SourceLastGood", kind)
+        ModSettings.SetValue("SourceLastGoodTime", DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString())
+        ModSettings.Save()
+    End Sub
+
+    Public Sub ResetSource()
+        _active = Nothing
+        ModSettings.SetValue("SourceLastGood", "")
+        ModSettings.Save()
+    End Sub
+
+    Private ReadOnly Property UseMirror As Boolean
+        Get
+            Return Not Active.StartsWith(OfficialBase, StringComparison.OrdinalIgnoreCase)
+        End Get
+    End Property
+
+    Private Sub FailoverToOfficial()
+        If UseMirror Then
+            ModLog.Info("镜像不可用，切换到官方源：" & OfficialBase)
+            _active = OfficialBase
+            RememberSource("official")
+        End If
+    End Sub
+
+    Private ReadOnly ManifestCache As String = Path.Combine(ModPaths.CacheDir, "version_manifest.json")
+    Private _manifest As List(Of McVersionSummary) = Nothing
+
+    ''' <summary>发起请求，统一的 UA 与失败重试。默认 25 秒超时，便于快速判定源不可用。</summary>
+    Public Function GetBytes(url As String, Optional retry As Integer = 2, Optional timeoutSec As Integer = 25) As Byte()
+        Dim lastEx As Exception = Nothing
+        For i = 0 To retry
+            Try
+                Using cts As New CancellationTokenSource(TimeSpan.FromSeconds(timeoutSec))
+                    Using req As New HttpRequestMessage(HttpMethod.Get, url)
+                        req.Headers.UserAgent.ParseAdd("TYWLauncher/1.0 (Linux)")
+                        Using resp = Client.Send(req, HttpCompletionOption.ResponseHeadersRead, cts.Token)
+                            resp.EnsureSuccessStatusCode()
+                            Return resp.Content.ReadAsByteArrayAsync(cts.Token).GetAwaiter().GetResult()
+                        End Using
+                    End Using
+                End Using
+            Catch ex As Exception
+                lastEx = ex
+                If i < retry Then Thread.Sleep(300 * (i + 1))
+            End Try
+        Next
+        Throw New Exception("下载失败：" & url & " —— " & lastEx?.Message, lastEx)
+    End Function
+
+    ''' <summary>下载到文件（先写 .tmp 再改名，避免中断留下坏文件）。</summary>
+    Public Sub DownloadFile(url As String, dest As String, Optional retry As Integer = 2)
+        Dim dir = Path.GetDirectoryName(dest)
+        If Not String.IsNullOrEmpty(dir) AndAlso Not Directory.Exists(dir) Then Directory.CreateDirectory(dir)
+        Dim tmp = dest & ".tmp"
+        Dim lastEx As Exception = Nothing
+        For i = 0 To retry
+            Try
+                Using cts As New CancellationTokenSource(TimeSpan.FromMinutes(15))
+                    Using req As New HttpRequestMessage(HttpMethod.Get, url)
+                        req.Headers.UserAgent.ParseAdd("TYWLauncher/1.0 (Linux)")
+                        Using resp = Client.Send(req, HttpCompletionOption.ResponseHeadersRead, cts.Token)
+                            resp.EnsureSuccessStatusCode()
+                            Using src = resp.Content.ReadAsStreamAsync(cts.Token).GetAwaiter().GetResult()
+                                Using dst = New FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None, 81920)
+                                    Dim buf(81919) As Byte
+                                    Do
+                                        Dim n = src.ReadAsync(buf, 0, buf.Length, cts.Token).GetAwaiter().GetResult()
+                                        If n <= 0 Then Exit Do
+                                        dst.Write(buf, 0, n)
+                                    Loop
+                                End Using
+                            End Using
+                        End Using
+                    End Using
+                End Using
+                If File.Exists(dest) Then File.Delete(dest)
+                File.Move(tmp, dest)
+                Return
+            Catch ex As Exception
+                lastEx = ex
+                Try
+                    If File.Exists(tmp) Then File.Delete(tmp)
+                Catch
+                End Try
+                Thread.Sleep(400 * (i + 1))
+            End Try
+        Next
+        Throw New Exception("下载失败：" & url & " —— " & lastEx?.Message, lastEx)
+    End Sub
+
+    ''' <summary>镜像优先、官方兜底；镜像失败会永久切到官方。</summary>
+    Public Sub DownloadWithMirror(mirrorUrl As String, officialUrl As String, dest As String, Optional retry As Integer = 1)
+        Try
+            DownloadFile(mirrorUrl, dest, retry)
+        Catch ex As Exception
+            If String.IsNullOrEmpty(officialUrl) OrElse officialUrl = mirrorUrl Then Throw
+            FailoverToOfficial()
+            Dim fallback = If(UseMirror, officialUrl, officialUrl)
+            DownloadFile(fallback, dest, retry)
+        End Try
+    End Sub
+
+#Region "地址重写"
+
+    ''' <summary>把 Mojang 官方地址换到镜像；已切到官方源时原样返回。</summary>
+    Public Function Rewrite(url As String) As String
+        If String.IsNullOrEmpty(url) Then Return url
+        If Not UseMirror Then Return url
+        Dim m = Active.TrimEnd("/"c)
+        If url.Contains("launchermeta.mojang.com") Then Return url.Replace("https://launchermeta.mojang.com", m)
+        If url.Contains("piston-meta.mojang.com") Then Return url.Replace("https://piston-meta.mojang.com", m)
+        If url.Contains("launcher.mojang.com") Then Return url.Replace("https://launcher.mojang.com", m)
+        If url.Contains("libraries.minecraft.net") Then Return url.Replace("https://libraries.minecraft.net", m & "/maven")
+        If url.Contains("resources.download.minecraft.net") Then Return url.Replace("https://resources.download.minecraft.net", m & "/assets")
+        If url.Contains("piston-data.mojang.com") Then Return url.Replace("https://piston-data.mojang.com", m)
+        Return url
+    End Function
+
+#End Region
+
+#Region "版本清单"
+
+    Public Function Manifest(Optional force As Boolean = False) As List(Of McVersionSummary)
+        If _manifest IsNot Nothing AndAlso Not force Then Return _manifest
+        Dim data As Byte() = Nothing
+        ' 缓存 1 小时内直接用
+        Try
+            If Not force AndAlso File.Exists(ManifestCache) AndAlso
+               DateTime.Now - File.GetLastWriteTime(ManifestCache) < TimeSpan.FromHours(1) Then
+                data = File.ReadAllBytes(ManifestCache)
+            End If
+        Catch
+        End Try
+        If data Is Nothing Then
+            Dim url = Active.TrimEnd("/"c) & "/mc/game/version_manifest_v2.json"
+            Try
+                ' 探测时限给短一点，镜像不通时不要卡着用户
+                data = GetBytes(url, 0, 10)
+                If UseMirror Then RememberSource("mirror")
+            Catch ex As Exception
+                ' 镜像整体不可用时切官方重来
+                FailoverToOfficial()
+                url = Active.TrimEnd("/"c) & "/mc/game/version_manifest_v2.json"
+                data = GetBytes(url, 2)
+            End Try
+            Try
+                Directory.CreateDirectory(ModPaths.CacheDir)
+                File.WriteAllBytes(ManifestCache, data)
+            Catch
+            End Try
+        End If
+
+        Dim list As New List(Of McVersionSummary)
+        Using doc = JsonDocument.Parse(data)
+            Dim versions As JsonElement
+            If doc.RootElement.TryGetProperty("versions", versions) Then
+                For Each v In versions.EnumerateArray()
+                    list.Add(New McVersionSummary With {
+                        .Id = Str(v, "id"),
+                        .Type = Str(v, "type"),
+                        .ReleaseTime = Str(v, "releaseTime"),
+                        .Url = Str(v, "url")
+                    })
+                Next
+            End If
+        End Using
+        _manifest = list
+        Return list
+    End Function
+
+    Private Function Str(el As JsonElement, name As String) As String
+        Dim v As JsonElement
+        If el.TryGetProperty(name, v) AndAlso v.ValueKind = JsonValueKind.String Then Return v.GetString()
+        Return ""
+    End Function
+
+#End Region
+
+#Region "库文件路径"
+
+    ''' <summary>把 Maven 坐标转成相对路径：group:artifact:version[:classifier][@ext]</summary>
+    Public Function MavenToPath(name As String) As String
+        If String.IsNullOrEmpty(name) Then Return ""
+        Dim ext = "jar"
+        Dim at = name.IndexOf("@"c)
+        If at >= 0 Then
+            ext = name.Substring(at + 1)
+            name = name.Substring(0, at)
+        End If
+        Dim parts = name.Split(":"c)
+        If parts.Length < 3 Then Return ""
+        Dim group = parts(0).Replace("."c, "/"c)
+        Dim artifact = parts(1)
+        Dim version = parts(2)
+        Dim classifier = If(parts.Length > 3, parts(3), "")
+        Dim file = artifact & "-" & version & If(classifier <> "", "-" & classifier, "") & "." & ext
+        Return $"{group}/{artifact}/{version}/{file}"
+    End Function
+
+#End Region
+
+#Region "安装"
+
+    ''' <summary>
+    ''' 安装一个原版版本。report(progress 0~1, 当前动作)，cancel 返回 True 时中止。
+    ''' </summary>
+    Public Sub Install(id As String, versionUrl As String, report As Action(Of Double, String), cancel As Func(Of Boolean))
+        ModPaths.EnsureAll()
+        ' 同步阻塞式下载会占满线程池，默认线程增长太慢会让并发形同虚设
+        Dim minWorker As Integer, minIo As Integer
+        ThreadPool.GetMinThreads(minWorker, minIo)
+        If minWorker < 128 Then ThreadPool.SetMinThreads(128, Math.Max(minIo, 128))
+
+        Dim mcDir = ModPaths.McFolder
+        Dim verDir = Path.Combine(mcDir, "versions", id)
+        Directory.CreateDirectory(verDir)
+        Dim jsonPath = Path.Combine(verDir, id & ".json")
+
+        report(0.01, "获取版本信息")
+        ' 已有 JSON 就不再重复下载（老版本重装文件缺失时只补文件）
+        If Not File.Exists(jsonPath) AndAlso Not String.IsNullOrEmpty(versionUrl) Then
+            Dim bytes = GetBytes(Rewrite(versionUrl), 1)
+            File.WriteAllBytes(jsonPath, bytes)
+        End If
+        If Not File.Exists(jsonPath) Then Throw New Exception("拿不到版本 " & id & " 的 JSON")
+
+        Using doc = JsonDocument.Parse(File.ReadAllBytes(jsonPath))
+            Dim root = doc.RootElement
+
+            ' --- client jar ---
+            report(0.04, "下载游戏本体")
+            Dim clientUrl = ""
+            Dim dl As JsonElement
+            If root.TryGetProperty("downloads", dl) Then
+                Dim c As JsonElement
+                If dl.TryGetProperty("client", c) Then clientUrl = Str(c, "url")
+            End If
+            Dim jarPath = Path.Combine(verDir, id & ".jar")
+            If Not String.IsNullOrEmpty(clientUrl) AndAlso (Not File.Exists(jarPath) OrElse New FileInfo(jarPath).Length = 0) Then
+                DownloadWithMirror(Rewrite(clientUrl), clientUrl, jarPath)
+            End If
+            If cancel() Then Throw New OperationCanceledException
+
+            ' --- libraries ---
+            Dim libTasks As New List(Of Tuple(Of String, String))  ' (url, 目标路径)
+            Dim libsEl As JsonElement
+            If root.TryGetProperty("libraries", libsEl) Then
+                For Each libEl In libsEl.EnumerateArray()
+                    If Not LibAllowed(libEl) Then Continue For
+                    Dim libName = Str(libEl, "name")
+                    Dim dls As JsonElement
+                    If libEl.TryGetProperty("downloads", dls) Then
+                        Dim art As JsonElement
+                        If dls.TryGetProperty("artifact", art) Then
+                            Dim u = Str(art, "url")
+                            Dim p = Str(art, "path")
+                            If String.IsNullOrEmpty(p) Then p = MavenToPath(libName)
+                            If u <> "" AndAlso p <> "" Then
+                                libTasks.Add(Tuple.Create(Rewrite(u), Path.Combine(mcDir, "libraries", p.Replace("/"c, Path.DirectorySeparatorChar))))
+                            End If
+                        End If
+                        Dim cls As JsonElement
+                        If dls.TryGetProperty("classifiers", cls) Then
+                            For Each cProp In cls.EnumerateObject()
+                                Dim key = cProp.Name
+                                If Not IsNativeKeyForLinux(key) Then Continue For
+                                Dim u = Str(cProp.Value, "url")
+                                Dim p = Str(cProp.Value, "path")
+                                If String.IsNullOrEmpty(p) Then p = MavenToPath(libName & ":" & key)
+                                If u <> "" AndAlso p <> "" Then
+                                    libTasks.Add(Tuple.Create(Rewrite(u), Path.Combine(mcDir, "libraries", p.Replace("/"c, Path.DirectorySeparatorChar))))
+                                End If
+                            Next
+                        End If
+                    Else
+                        ' 老版本没有 downloads 字段
+                        Dim p = MavenToPath(libName)
+                        If p <> "" Then
+                            libTasks.Add(Tuple.Create(Rewrite("https://libraries.minecraft.net/" & p),
+                                                     Path.Combine(mcDir, "libraries", p.Replace("/"c, Path.DirectorySeparatorChar))))
+                        End If
+                    End If
+                Next
+            End If
+
+            ' --- assets 索引 ---
+            report(0.10, "获取资源索引")
+            Dim assetIndexId = "legacy"
+            Dim indexTasks As New List(Of Tuple(Of String, String))
+            Dim ai As JsonElement
+            If root.TryGetProperty("assetIndex", ai) Then
+                assetIndexId = Str(ai, "id")
+                Dim au = Str(ai, "url")
+                Dim idxPath = Path.Combine(mcDir, "assets", "indexes", assetIndexId & ".json")
+                If Not File.Exists(idxPath) Then
+                    DownloadWithMirror(Rewrite(au), au, idxPath)
+                End If
+                Try
+                    Using idxDoc = JsonDocument.Parse(File.ReadAllBytes(idxPath))
+                        Dim objs As JsonElement
+                        If idxDoc.RootElement.TryGetProperty("objects", objs) Then
+                            For Each o In objs.EnumerateObject()
+                                Dim hash = Str(o.Value, "hash")
+                                If hash.Length < 2 Then Continue For
+                                Dim sub1 = hash.Substring(0, 2)
+                                Dim target = Path.Combine(mcDir, "assets", "objects", sub1, hash)
+                                If File.Exists(target) AndAlso New FileInfo(target).Length > 0 Then Continue For
+                                Dim u = "https://resources.download.minecraft.net/" & sub1 & "/" & hash
+                                indexTasks.Add(Tuple.Create(Rewrite(u), target))
+                            Next
+                        End If
+                    End Using
+                Catch ex As Exception
+                    ModLog.Err(ex, "解析资源索引")
+                End Try
+            End If
+
+            ' --- 并行下载 ---
+            Dim all As New List(Of Tuple(Of String, String))
+            all.AddRange(libTasks)
+            all.AddRange(indexTasks)
+            Dim todo = all.Where(Function(t) Not File.Exists(t.Item2) OrElse New FileInfo(t.Item2).Length = 0).ToList()
+            Dim total = Math.Max(todo.Count, 1)
+            Dim done = 0
+            Dim stageName = If(indexTasks.Count > libTasks.Count, "下载资源文件", "下载依赖库")
+            report(0.14, stageName & "（共 " & todo.Count & " 个文件）")
+
+            Dim po As New ParallelOptions With {.MaxDegreeOfParallelism = 48}
+            Dim failCount = 0
+            Try
+                Parallel.ForEach(todo, po,
+                    Sub(t)
+                        If cancel() Then Return
+                        Try
+                            DownloadFile(t.Item1, t.Item2, 1)
+                        Catch ex As Exception
+                            Interlocked.Increment(failCount)
+                            ModLog.Err(ex, "下载依赖失败：" & t.Item1)
+                        End Try
+                        Dim n = Interlocked.Increment(done)
+                        If n Mod 4 = 0 OrElse n = total Then
+                            report(0.14 + 0.84 * n / total, stageName & $"（{n}/{total}）")
+                        End If
+                    End Sub)
+            Catch ex As OperationCanceledException
+                Throw
+            End Try
+
+            ' 少量文件失败可能不影响启动（有些库只在其它平台需要），大面积失败则必须报错
+            If failCount > 0 Then
+                If failCount > Math.Max(3, total * 0.2) Then
+                    Throw New Exception($"有 {failCount} 个文件下载失败（共 {total} 个），请检查网络后重新安装。")
+                End If
+                ModLog.Info($"有 {failCount} 个文件下载失败，已跳过")
+            End If
+        End Using
+
+        ' legacy 资源需要复制到 assets/virtual/legacy
+        Try
+            CopyLegacyAssetsIfNeeded()
+        Catch ex As Exception
+            ModLog.Err(ex, "整理旧版资源")
+        End Try
+
+        report(1.0, "安装完成")
+        ModVersion.Invalidate()
+    End Sub
+
+    ''' <summary>老版本（1.6 及以前）需要把 objects 复制到 virtual/legacy。</summary>
+    Private Sub CopyLegacyAssetsIfNeeded()
+        Dim idx = Path.Combine(ModPaths.McFolder, "assets", "indexes", "legacy.json")
+        If Not File.Exists(idx) Then Return
+        Dim virt = Path.Combine(ModPaths.McFolder, "assets", "virtual", "legacy")
+        If Directory.Exists(virt) AndAlso Directory.GetFiles(virt, "*", SearchOption.AllDirectories).Length > 10 Then Return
+        Using doc = JsonDocument.Parse(File.ReadAllBytes(idx))
+            Dim objs As JsonElement
+            If Not doc.RootElement.TryGetProperty("objects", objs) Then Return
+            For Each o In objs.EnumerateObject()
+                Dim hash = Str(o.Value, "hash")
+                If hash.Length < 2 Then Continue For
+                Dim src = Path.Combine(ModPaths.McFolder, "assets", "objects", hash.Substring(0, 2), hash)
+                Dim dst = Path.Combine(virt, o.Name.Replace("/"c, Path.DirectorySeparatorChar))
+                If Not File.Exists(src) Then Continue For
+                Directory.CreateDirectory(Path.GetDirectoryName(dst))
+                File.Copy(src, dst, True)
+            Next
+        End Using
+    End Sub
+
+    ''' <summary>规则判断：当前平台（Linux）是否适用。</summary>
+    Public Function LibAllowed(libEl As JsonElement) As Boolean
+        Dim rules As JsonElement
+        If Not libEl.TryGetProperty("rules", rules) Then Return True
+        Dim allowed = False
+        For Each rule In rules.EnumerateArray()
+            Dim action = Str(rule, "action")
+            Dim osEl As JsonElement
+            Dim matchAs = True
+            If rule.TryGetProperty("os", osEl) Then
+                Dim name = Str(osEl, "name")
+                If name <> "" AndAlso name <> "linux" Then matchAs = False
+                Dim arch = Str(osEl, "arch")
+                If arch <> "" Then
+                    Dim is64 = Environment.Is64BitOperatingSystem
+                    If (arch = "x86" AndAlso is64) OrElse (arch = "x86_64" AndAlso Not is64) Then matchAs = False
+                End If
+            End If
+            If matchAs Then
+                allowed = (action = "allow")
+            End If
+        Next
+        Return allowed
+    End Function
+
+    Private Function IsNativeKeyForLinux(key As String) As Boolean
+        Dim k = key.ToLowerInvariant()
+        If k.Contains("arm") Then Return False
+        Return k.Contains("linux")
+    End Function
+
+#End Region
+
+End Module
