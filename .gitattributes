@@ -3,6 +3,9 @@
 ###############################################################################
 * text=auto
 
+# Linux 版源码一律 LF（脚本里有 shebang，CRLF 会让 sh 报错）
+TYWLauncher-Linux/** text eol=lf
+
 ###############################################################################
 # Set default behavior for command prompt diff.
 #
