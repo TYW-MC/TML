@@ -231,20 +231,15 @@ Public Class FormMain
                 '网络失败时放行，避免服务端临时不可用导致所有人打不开
                 Dim BanReason As String = CheckDeviceBanned()
                 If BanReason IsNot Nothing Then
-                    '★ 用原生 MessageBox：启动早期 PCL 的 MyMsgBox 可能无法正常弹出，
-                    '  原生弹窗必定阻塞，用户看完封禁原因点确定后才会退出
-                    RunInUiWait(Sub()
-                                    Try
-                                        System.Windows.MessageBox.Show(
-                                            "你的设备已被封禁，无法使用 TYW Launcher。" & vbCrLf & vbCrLf &
-                                            "设备码：" & DeviceCode & vbCrLf &
-                                            If(BanReason = "", "", "原因：" & BanReason & vbCrLf) & vbCrLf &
-                                            "如有疑问请联系管理员。",
-                                            "设备已被封禁", MessageBoxButton.OK, MessageBoxImage.Stop)
-                                    Catch ex As Exception
-                                        Logger.Error(ex, "封禁提示框显示失败")
-                                    End Try
-                                End Sub)
+                    '★ 用 Windows 原生 MessageBox（置顶 + 强制前台 + 阻塞）：
+                    '  启动早期 WPF 弹窗可能被主窗口盖住或一闪而过，原生框能保证用户看完再退出
+                    Dim BanText As String =
+                        "你的设备已被封禁，TYW Launcher 无法继续使用。" & vbCrLf & vbCrLf &
+                        "设备码：" & DeviceCode & vbCrLf &
+                        "封禁原因：" & If(BanReason.Trim = "", "管理员未填写原因", BanReason) & vbCrLf & vbCrLf &
+                        "启动器将立即退出。如认为这是误封，请联系服务器管理员并附上上面的设备码。"
+                    Logger.Warn("设备已被封禁，启动器退出。原因：" & If(BanReason.Trim = "", "（未填写）", BanReason))
+                    RunInUiWait(Sub() ShowNativeErrorBox(BanText, "TYW Launcher · 设备已被封禁"))
                     EndProgram(False)
                     Return
                 End If

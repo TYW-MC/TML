@@ -193,6 +193,60 @@ RequestFinished:
         End Try
     End Function
 
+    ''' <summary>
+    ''' 访问 TYW 自建服务端（公告、云控配置、封禁查询、内测校验等）。
+    ''' 与 NetRequestByLoader 的差别只有一点：请求头带 X-TYW-Enc: 1 协商内容加密，
+    ''' 响应若带 X-TYW-Enc 响应头就先用 ModCrypto 解开，再按原有格式解析。
+    ''' 服务端未升级或返回明文时行为与以前完全一致，不会因为加密改造而失效。
+    ''' </summary>
+    Public Function ServerRequest(Url As String, Optional Timeout As Integer = 15000, Optional Retry As Integer = 2) As String
+        Dim Last As Exception = Nothing
+        For Attempt = 1 To If(Retry < 1, 1, Retry)
+            Try
+                SyncLock ServerClientLock
+                    If ServerClient Is Nothing Then
+                        ServerClient = New HttpClient(New HttpClientHandler With {
+                            .AutomaticDecompression = DecompressionMethods.Deflate Or DecompressionMethods.GZip})
+                        ServerClient.Timeout = System.Threading.Timeout.InfiniteTimeSpan
+                    End If
+                End SyncLock
+
+                Using Req As New HttpRequestMessage(HttpMethod.Get, Url)
+                    Req.Headers.TryAddWithoutValidation("User-Agent", "TYWLauncher/" & VersionBaseName)
+                    Req.Headers.TryAddWithoutValidation("X-TYW-Enc", "1")
+                    Using Cts As New CancellationTokenSource(Timeout)
+                        Using Resp = ServerClient.SendAsync(Req, HttpCompletionOption.ResponseContentRead, Cts.Token).GetAwaiter().GetResult()
+                            If Not Resp.IsSuccessStatusCode Then
+                                Throw New HttpRequestException($"服务端返回错误码 {CInt(Resp.StatusCode)}（{Url}）")
+                            End If
+                            Dim Bytes = Resp.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult()
+                            Dim Encrypted As Boolean = False
+                            For Each H In Resp.Headers
+                                If H.Key.Equals("X-TYW-Enc", StringComparison.OrdinalIgnoreCase) Then
+                                    Encrypted = H.Value.FirstOrDefault() = "1"
+                                End If
+                            Next
+                            If Encrypted Then
+                                Dim Plain = ModCrypto.Decrypt(Bytes)
+                                If Plain Is Nothing Then Throw New Exception("服务端响应解密失败（密钥不匹配或内容被改动）")
+                                Bytes = Plain
+                            End If
+                            Return Encoding.UTF8.GetString(Bytes)
+                        End Using
+                    End Using
+                End Using
+            Catch ex As Exception
+                Last = ex
+                Logger.Warn(ex, $"服务端请求失败（{Attempt}/{Retry}）：{Url}")
+                Thread.Sleep(300 * Attempt)
+            End Try
+        Next
+        Throw New Exception($"无法连接服务端（{Url}）：{If(Last Is Nothing, "未知错误", Last.Message)}", Last)
+    End Function
+
+    Private ServerClient As HttpClient = Nothing
+    Private ReadOnly ServerClientLock As New Object()
+
 #End Region
 
 #Region "文件下载"

@@ -167,16 +167,6 @@ Public Class PageSetupSystem
             If e.RemovedItems.Count > 0 Then ComboSystemActivity.SelectedItem = e.RemovedItems(0)
         End If
     End Sub
-    Private Sub ComboSystemUpdate_SelectionChanged(sender As Object, e As SelectionChangedEventArgs) Handles ComboSystemUpdate.SelectionChanged
-        If AniControlEnabled <> 0 Then Return
-        If ComboSystemUpdate.SelectedIndex <> 3 Then Return
-        If MyMsgBox("若选择此项，即使在启动器将来出现严重问题时，你也无法获取更新并获得修复。" & vbCrLf &
-                    "例如，如果官方修改了登录方式，从而导致现有启动器无法登录，你可能就会因为无法更新而无法开始游戏。" & vbCrLf & vbCrLf &
-                    "一般选择 仅在有重大漏洞更新时显示提示 就可以让你尽量不受打扰了。" & vbCrLf &
-                    "除非你在制作服务器整合包，或时常手动更新启动器，否则极度不推荐选择此项！", "警告", "我知道我在做什么", "取消", IsWarn:=True) = 2 Then
-            If e.RemovedItems.Count > 0 Then ComboSystemUpdate.SelectedItem = e.RemovedItems(0)
-        End If
-    End Sub
     Private Sub BtnSystemUpdate_Click(sender As Object, e As EventArgs) Handles BtnSystemUpdate.Click
         If IsBetaChannel Then
             BetaGetUpdate()
@@ -303,7 +293,6 @@ Public Class PageSetupSystem
             CheckSystemAutoUpdate.ToolTip = "内测版不提供自动更新，新版本由服务端人工发布。"
             CheckSystemSnapshotTest.IsEnabled = False
             CheckSystemSnapshotTest.ToolTip = "内测版已经是独立通道，不参与快照版测试。"
-            ComboSystemUpdate.IsEnabled = False
             '检查更新按钮在内测版改为「获取更新」：输入内测码校验通过后，更新到内测版最新版本
             BtnSystemUpdate.IsEnabled = True
             BtnSystemUpdate.Text = "获取更新（需要内测更新码）"

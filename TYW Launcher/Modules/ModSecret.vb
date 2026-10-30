@@ -6,19 +6,13 @@ Friend Module ModSecret
     Public Const VersionBranchMain As String = "OpenSource"
     '在开源版的注册表与常规版的注册表隔离，以防数据冲突
     Public Const RegFolder As String = "PCLDebug"
-    '★ 与上游开源版一致：仓库里不保存真实密钥，构建时通过环境变量注入（PCL_MS_CLIENT_ID / PCL_CURSEFORGE_API_KEY）
     '用于微软登录的 ClientId
-    Public OAuthClientId As String = If(Environment.GetEnvironmentVariable("PCL_MS_CLIENT_ID"), "")
+    Public OAuthClientId As String = If(Environment.GetEnvironmentVariable("PCL_MS_CLIENT_ID"), "852d43f4-7b54-4544-9a0e-fc04c3c35c82")
     'CurseForge API Key
-    Public CurseForgeAPIKey As String = If(Environment.GetEnvironmentVariable("PCL_CURSEFORGE_API_KEY"), "")
-    'Self-hosted server address (announcements / update download / beta & ban management).
-    'Must end with '/'. Leave EMPTY to disable all server features (open-source default).
-    '★ To self-host, set this to your own server URL, e.g. "http://your-server.com:8080/" ★
-    'The server implementation is NOT open-sourced; see README for the expected HTTP endpoints.
-    Public Const ServerAddress As String = ""
-
-    ''' <summary>Master switch for server features: when ServerAddress is empty, all of them are disabled.</summary>
-    Friend ReadOnly ServerEnabled As Boolean = ServerAddress <> ""
+    Public CurseForgeAPIKey As String = If(Environment.GetEnvironmentVariable("PCL_CURSEFORGE_API_KEY"), "$2a$10$2fcSOPMyE/ckR48Gcw6/UOTsa0I0uW2jH5sr7zT.cQAVqPKUHnJtK")
+    'TYW Launcher 自建服务端地址（公告 / 启动器更新下载，须以 / 结尾）
+    '★ 换服务器时只需要修改这一行 ★
+    Public Const ServerAddress As String = "http://Launcher.mc.tywmc.cn:17403/"
     '用于匿名数据收集的腾讯云日志服务上报 URL，形如 https://{region}.cls.tencentcs.com/track?topic_id={topic_id}
     Public Const ClsBaseUrl As String = ""
 
@@ -274,7 +268,7 @@ Friend Module ModSecret
     ''' 旧格式只有前 5 段，仍然可用。
     ''' </summary>
     Friend Function ReadServerNotice(Optional TimeoutMs As Integer = 10000) As String()
-        Dim Content As String = NetRequestByLoader(ServerAddress & "Notice.cfg", TimeoutMs)
+        Dim Content As String = ServerRequest(ServerAddress & "Notice.cfg", TimeoutMs)
         Dim Segments = Content.Split("|")
         If Segments.Length < 3 Then Throw New Exception("服务端 Notice.cfg 格式错误（需要至少 3 段）")
         Return Segments
@@ -285,10 +279,9 @@ Friend Module ModSecret
     ''' 被封禁返回封禁原因；未封禁返回空字符串；网络失败等异常返回 Nothing（放行，避免断网无法使用）。
     ''' </summary>
     Friend Function CheckDeviceBanned() As String
-        If Not ServerEnabled Then Return Nothing 'Server not configured: skip the ban check
         Try
             Dim Url As String = ServerAddress & "ban?ident=" & Uri.EscapeDataString(DeviceCode)
-            Dim Raw As String = NetRequestByLoader(Url, 8000)
+            Dim Raw As String = ServerRequest(Url, 8000)
             Dim Json As Newtonsoft.Json.Linq.JObject = Newtonsoft.Json.Linq.JObject.Parse(Raw)
             If Json("banned") IsNot Nothing AndAlso CBool(Json("banned")) Then
                 Return If(Json("reason") Is Nothing, "", Json("reason").ToString)
@@ -330,6 +323,15 @@ Friend Module ModSecret
             Logger.Info("读取内置更新日志失败：" & ex.Message)
         End Try
         Return ""
+    End Function
+
+    ''' <summary>
+    ''' 判断公告是否只是「X.X.X 已发布，更新内容请在检查更新里查看」这类例行发布通知。
+    ''' 这类通知与启动器内置更新日志（更新后首次启动自动弹）完全重复，不弹，交给本地更新日志。
+    ''' 真正的活动、维护等公告不受影响，照常弹出。
+    ''' </summary>
+    Friend Function IsGenericReleaseNotice(Text As String) As Boolean
+        Return Text.Contains("已发布") AndAlso Text.Contains("检查更新")
     End Function
 
     ''' <summary>取指定通道的版本码，缺段时回退到正式版码。</summary>
@@ -378,12 +380,6 @@ Friend Module ModSecret
             MyMsgBox("内测版不提供检查更新。" & vbCrLf &
                      "内测版由服务端人工发布，需要更新时请等待服务端下发新版本。" & vbCrLf & vbCrLf &
                      "如果想回到正式版，请在 设置 - 其他 中取消「内测版体验」。", "内测版")
-            Return
-        End If
-        If Not ServerEnabled Then
-            MyMsgBox("未配置服务端地址，无法检查更新。" & vbCrLf & vbCrLf &
-                     "开源版需要自建服务端：请在 Modules/ModSecret.vb 中把 ServerAddress 改为你自己的服务器地址。",
-                     "检查更新")
             Return
         End If
         Try
@@ -489,7 +485,6 @@ Friend Module ModSecret
     ''' 如果不是，则下载一个。
     ''' </summary>
     Friend Sub DownloadLatestPCL(Optional LoaderToSyncProgress As LoaderBase = Nothing)
-        If Not ServerEnabled Then Throw New Exception("未配置服务端地址，无法下载启动器（ModSecret.ServerAddress）")
         Try
             If FileUtils.Exists(PathTemp & "Latest.exe") Then Return
             Dim Task As New LoaderTask(Of Integer, Integer)("下载 TYW Launcher 正式版",
@@ -717,7 +712,7 @@ Friend Module ModSecret
                 FileUtils.Write(PathTemp & "Cache\Notice.cfg", Segments.Join("|"))
                 '可选：从服务端获取 config.json（全功能云控，强制应用服务端下发的设置）
                 Try
-                    ServerConfig = JObject.Parse(NetRequestByLoader(ServerAddress & "config.json", 5000))
+                    ServerConfig = JObject.Parse(ServerRequest(ServerAddress & "config.json", 5000))
                     ApplyCloudConfig()
                     FileUtils.Write(PathTemp & "Cache\config.json", ServerConfig.ToString(Newtonsoft.Json.Formatting.Indented))
                     Logger.Info("已从服务端获取并应用 config.json 云控配置")
@@ -736,7 +731,9 @@ Friend Module ModSecret
                 '同一条公告只自动弹一次，服务端改了内容才会再弹
                 Dim NoticeText As String = GetChannelNotice(Segments)
                 Dim NoticeTitle As String = If(Segments(0) = "", "公告", Segments(0))
-                If NoticeText <> "" AndAlso Settings.Get(Of Integer)("HintNotice") < 2 AndAlso ShouldShowNotice(NoticeTitle, NoticeText) Then
+                '例行发布通知（"已发布…请到检查更新查看"）不弹：与本地更新日志重复
+                If NoticeText <> "" AndAlso Not IsGenericReleaseNotice(NoticeText) AndAlso
+                    Settings.Get(Of Integer)("HintNotice") < 2 AndAlso ShouldShowNotice(NoticeTitle, NoticeText) Then
                     RunInUi(Sub() MyMsgBox(NoticeText, NoticeTitle))
                 End If
             Catch ex As Exception

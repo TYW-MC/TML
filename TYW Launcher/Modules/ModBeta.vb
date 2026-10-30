@@ -47,7 +47,7 @@ Module ModBeta
     Friend Function VerifyBetaCode(Code As String) As BetaResult
         Dim Url As String = ServerAddress & "beta?ident=" & Uri.EscapeDataString(DeviceCode) &
                             "&code=" & Uri.EscapeDataString(If(Code, "").Trim)
-        Dim Raw As String = NetRequestByLoader(Url, 12000)
+        Dim Raw As String = ServerRequest(Url, 12000)
         Dim Json As JObject = JObject.Parse(Raw)
         Dim R As New BetaResult With {
             .Ok = CBool(If(Json("ok") IsNot Nothing, Json("ok"), False)),
@@ -65,7 +65,7 @@ Module ModBeta
         Dim Url As String = ServerAddress & "betaupdate?ident=" & Uri.EscapeDataString(DeviceCode) &
                             "&code=" & Uri.EscapeDataString(If(Code, "").Trim) &
                             "&ver=" & VersionCode
-        Dim Raw As String = NetRequestByLoader(Url, 12000)
+        Dim Raw As String = ServerRequest(Url, 12000)
         Dim Json As JObject = JObject.Parse(Raw)
         Dim R As New BetaResult With {
             .Ok = CBool(If(Json("ok") IsNot Nothing, Json("ok"), False)),
@@ -82,7 +82,7 @@ Module ModBeta
         Try
             Dim Url As String = ServerAddress & "betaupdate?ident=" & Uri.EscapeDataString(DeviceCode) &
                                 "&code=" & Uri.EscapeDataString(If(Code, "").Trim) & "&done=1"
-            NetRequestByLoader(Url, 8000)
+            ServerRequest(Url, 8000)
             Logger.Info("内测版更新完成已上报服务端，更新码记录已删除")
         Catch ex As Exception
             Logger.Warn(ex, "内测版更新完成上报失败（不影响更新，服务端记录可由管理员手动删除）")

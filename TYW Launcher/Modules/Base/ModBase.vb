@@ -1,4 +1,5 @@
 ﻿Imports System.Runtime.CompilerServices
+Imports System.Runtime.InteropServices
 Imports System.Xaml
 
 Public Module ModBase
@@ -9,11 +10,11 @@ Public Module ModBase
     Public Const VersionBaseName As String = "1.1.19" '显示用版本名
     Public Const CommitHash As String = "" 'Commit Hash，由 GitHub Workflow 自动替换
 #If RELEASE Then
-    Public Const VersionCode As Integer = 180 '正式版
+    Public Const VersionCode As Integer = 181 '正式版
 #ElseIf BETA Then
-    Public Const VersionCode As Integer = 185 '内测版
+    Public Const VersionCode As Integer = 187 '内测版
 #Else
-    Public Const VersionCode As Integer = 184 '快照版
+    Public Const VersionCode As Integer = 186 '快照版
 #End If
 
     '版本信息
@@ -1215,6 +1216,38 @@ Public Module ModBase
             RawCopy.RemoveAt(i)
         Loop
     End Function
+
+#End Region
+
+#Region "原生对话框"
+
+    'MB_OK | MB_ICONERROR | MB_SETFOREGROUND | MB_TOPMOST
+    Private Const NativeErrorFlags As UInteger = &H0UI Or &H10UI Or &H10000UI Or &H40000UI
+
+    <DllImport("user32.dll", CharSet:=CharSet.Unicode, SetLastError:=True)>
+    Private Function MessageBoxW(hWnd As IntPtr, lpText As String, lpCaption As String, uType As UInteger) As Integer
+    End Function
+
+    ''' <summary>
+    ''' 用 Windows 原生的 MessageBox 显示错误提示：置顶 + 强制前台，并且阻塞到用户点「确定」为止。
+    ''' 启动早期（主窗口还没完全显示、WPF 弹窗可能被盖住或一闪而过）时用它，保证用户一定看得到。
+    ''' 必须在 UI 线程调用（或包在 RunInUiWait 里）。
+    ''' </summary>
+    Public Sub ShowNativeErrorBox(Text As String, Optional Title As String = "TYW Launcher")
+        Try
+            Dim Owner As IntPtr = IntPtr.Zero
+            If Application.Current IsNot Nothing AndAlso Application.Current.MainWindow IsNot Nothing Then
+                Try
+                    Owner = New System.Windows.Interop.WindowInteropHelper(Application.Current.MainWindow).Handle
+                Catch
+                    '拿不到窗口句柄时退化为无属主弹窗，照样置顶
+                End Try
+            End If
+            MessageBoxW(Owner, Text, Title, NativeErrorFlags)
+        Catch ex As Exception
+            Logger.Error(ex, "显示原生错误框失败")
+        End Try
+    End Sub
 
 #End Region
 

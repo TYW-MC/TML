@@ -426,9 +426,13 @@ Public Class PageLinkMain
     '1. 获取服务器配置
     Private Sub InitConfig(Task As LoaderTask(Of Integer, Integer))
         UpdateLoadingPage("正在初始化联机配置……", "初始化配置")
-        '开源版：使用内置配置（原版需官方服务器下发 ServerConfig）
-        If ServerConfig Is Nothing Then
-            ServerConfig = JObject.Parse("{
+        '联机配置来源：服务端 config.json 的 Link 段 > 内置配置
+        '注意：服务端 config.json 一般只下发云控 settings（不含 Link），不能因为 ServerConfig 非 Nothing 就跳过内置配置，
+        '      否则后面的 ServerConfig("Link")(... ) 会直接空引用（获取配置失败 / 初始化配置失败）
+        If ServerConfig Is Nothing Then ServerConfig = New JObject()
+        Dim LinkNode = TryCast(ServerConfig("Link"), JObject)
+        If LinkNode Is Nothing Then
+            Dim Builtin = JObject.Parse("{
                 ""Link"": {
                     ""EasyTierVersion"": 20264,
                     ""Downloads"": [
@@ -438,19 +442,25 @@ Public Class PageLinkMain
                     ],
                     ""Argument"": ""--no-tun"",
                     ""DiscoverPeerId"": 0,
-                    ""DiscoverPeer"": ""tcp://public.easytier.cn:11010"",
+                    ""DiscoverPeer"": ""tcp://boi.de5.net:11010"",
                     ""PeersBlackList"": [],
                     ""RandomPeer"": 2,
-                    ""Peers"": [""tcp://public.easytier.cn:11010""],
+                    ""Peers"": [
+                        ""tcp://boi.de5.net:11010"",
+                        ""tcp://ros.scpsl.com.cn:11010"",
+                        ""tcp://easytier.weiai.org.cn:11010""
+                    ],
                     ""MandatoryPeers"": []
                 }
             }")
+            LinkNode = CType(Builtin("Link"), JObject)
+            ServerConfig("Link") = LinkNode
         End If
         '检查是否已禁用联机功能
-        Dim DisableReason = ServerConfig("Link")?("DisableReason2")?.ToString
+        Dim DisableReason = LinkNode("DisableReason2")?.ToString
         If Not String.IsNullOrEmpty(DisableReason) Then Throw New Exception("$" & DisableReason) 'TODO: 可能不会显示错误原因？
-        If CType(ServerConfig("Link"), JObject).ContainsKey("MinVersionCode") AndAlso
-           VersionCode < ServerConfig("Link")("MinVersionCode").ToObject(Of Integer) Then
+        If LinkNode.ContainsKey("MinVersionCode") AndAlso
+           VersionCode < LinkNode("MinVersionCode").ToObject(Of Integer) Then
             Throw New Exception("$你的 TYW Launcher 版本太老了，请在更新 TYW Launcher 之后再联机！")
         End If
     End Sub
@@ -626,17 +636,30 @@ Public Class PageLinkMain
         Dim FinalPeers As New List(Of String), FinalDiscoverID As Integer = -1
         Dim FallbackDiscoverID = ServerConfig("Link")("DiscoverPeerId").ToObject(Of Integer)
         Dim FallbackDiscoverAddress As String = ServerConfig("Link")("DiscoverPeer").ToString()
+        '★ 上游公开节点列表 API（uptime.easytier.cn 已 NXDOMAIN、easytier.meloong.com 证书失效且返回空包）已不可用。
+        '  现在只有服务端 config.json 下发了 Link.NodesUrl 才去查询远程节点列表；
+        '  未下发时直接用内置中继节点，且不弹错误提示（否则每次联机都报“获取节点列表失败”）。
+        Dim NodesUrl As String = ""
+        If ServerConfig("Link")("NodesUrl") IsNot Nothing Then NodesUrl = ServerConfig("Link")("NodesUrl").ToString.Trim
+        If NodesUrl = "" Then
+            Logger.Info("未配置联机节点列表 API，使用内置中继节点")
+            FinalPeers.AddRange(ServerConfig("Link")("Peers").Select(Function(p) p.ToString).ToList)
+            FinalPeers.Add(FallbackDiscoverAddress)
+            If CType(ServerConfig("Link"), JObject).ContainsKey("EnableForcedPeer") Then
+                FinalPeers.Add("tcp://mc1.easytier.cn:55558")
+                FinalDiscoverID = If(FallbackDiscoverID > 0, FallbackDiscoverID, 94)
+            Else
+                FinalDiscoverID = FallbackDiscoverID
+            End If
+            FinalPeers.AddRange(ServerConfig("Link")("MandatoryPeers").Select(Function(p) p.ToString).ToList)
+            DiscoverNodeID = FinalDiscoverID
+            Return FinalPeers.Distinct.ToList
+        End If
         Try
             '从 API 获取节点列表
             Dim RawNodes As JObject
             Dim IsFallbackRawList As Boolean = False
-            Try
-                RawNodes = NetRequestByClient("https://uptime.easytier.cn/api/nodes?page=1&per_page=1000", RequireJson:=True).DeserializeJson()
-            Catch exx As Exception
-                Logger.Warn(exx, "从源站获取节点列表失败，将使用 CDN 缓存")
-                RawNodes = NetRequestByClientRetry("https://easytier.meloong.com/?page=1&per_page=1000", RequireJson:=True).DeserializeJson()
-                IsFallbackRawList = True
-            End Try
+            RawNodes = NetRequestByClient(NodesUrl, RequireJson:=True).DeserializeJson()
             '分析节点列表
             Dim Nodes As New List(Of JObject) '负载会添加在 load 字段上
             Dim BlackList As List(Of String) = ServerConfig("Link")("PeersBlackList").Select(Function(p) p.ToString).ToList()
@@ -692,7 +715,7 @@ ForcedPass:
             End If
         Catch ex As Exception
             ex.ThrowIfCanceled()
-            Logger.Error(ex, "获取节点列表失败，联机质量可能受到影响", LogBehavior.Toast)
+            Logger.Warn(ex, "获取联机节点列表失败，将使用内置中继节点")
             FinalPeers.AddRange(ServerConfig("Link")("Peers").Select(Function(p) p.ToString))
             If FinalDiscoverID <= 0 Then
                 FinalPeers.Add(FallbackDiscoverAddress)
