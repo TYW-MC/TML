@@ -1,0 +1,13 @@
+# 构建产物
+bin/
+obj/
+out/
+*.user
+*.suo
+.vs/
+
+# 打包/发布中间产物
+packaging/build/
+packaging/*.deb
+packaging/*.AppImage
+packaging/*.tar.gz
