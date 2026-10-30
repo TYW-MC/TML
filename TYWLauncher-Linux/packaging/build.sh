@@ -59,6 +59,7 @@ Section: games
 Priority: optional
 Architecture: amd64
 Installed-Size: $INSTALLED
+Depends: libicu76 | libicu74 | libicu72 | libicu70, libssl3t64 | libssl3, libx11-6, libice6, libsm6, libfontconfig1, libgl1
 Maintainer: TYW <support@tywmc.cn>
 Description: TYW Launcher for Linux
  TYW Minecraft 启动器的 Linux 版本，界面与 Windows 版一致。

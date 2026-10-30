@@ -1,6 +1,7 @@
 Imports System.IO
 Imports System.Net
 Imports System.Net.Http
+Imports System.Net.Sockets
 Imports System.Text.Json
 Imports System.Threading
 Imports System.Threading.Tasks
@@ -19,19 +20,48 @@ End Class
 ''' </summary>
 Public Module ModDownload
 
-    Private ReadOnly Handler As New HttpClientHandler With {
-        .AutomaticDecompression = DecompressionMethods.All,
-        .MaxConnectionsPerServer = 64
-    }
+    Private ReadOnly Handler As HttpMessageHandler = CreateHandler()
 
     Public ReadOnly Client As HttpClient = CreateClient()
+
+    Private Function CreateHandler() As HttpMessageHandler
+        Dim s As New SocketsHttpHandler()
+        s.AutomaticDecompression = DecompressionMethods.All
+        s.MaxConnectionsPerServer = 64
+        s.ConnectTimeout = TimeSpan.FromSeconds(15)
+        s.PooledConnectionLifetime = TimeSpan.FromMinutes(10)
+        s.ConnectCallback = AddressOf ConnectPreferred
+        Return s
+    End Function
+
+    ''' <summary>
+    ''' 优先用 IPv4 建连。Mojang 的 CDN 域名带 AAAA 记录，但很多网络（包括这台测试机）
+    ''' 的 IPv6 只是有路由、实际不通，.NET 会一直挂在 IPv6 上直到超时，表现为「下载卡死」。
+    ''' </summary>
+    Private Function ConnectPreferred(ctx As SocketsHttpConnectionContext, ct As CancellationToken) As ValueTask(Of Stream)
+        Dim host = ctx.DnsEndPoint.Host
+        Dim port = ctx.DnsEndPoint.Port
+        Dim addrs = Dns.GetHostAddresses(host)
+        Dim ordered = addrs.OrderBy(Function(a) If(a.AddressFamily = AddressFamily.InterNetwork, 0, 1)).ToArray()
+        Dim lastEx As Exception = Nothing
+        For Each a In ordered
+            Dim sock As New Socket(a.AddressFamily, SocketType.Stream, ProtocolType.Tcp)
+            Try
+                sock.Connect(New IPEndPoint(a, port))
+                sock.NoDelay = True
+                Return New ValueTask(Of Stream)(New NetworkStream(sock, True))
+            Catch ex As Exception
+                lastEx = ex
+                sock.Dispose()
+            End Try
+        Next
+        Throw New IOException("无法连接 " & host & "：" & lastEx?.Message, lastEx)
+    End Function
 
     Private Function CreateClient() As HttpClient
         Dim c As New HttpClient(Handler)
         c.Timeout = Timeout.InfiniteTimeSpan   ' 由每次请求自己控制超时
-        ' 资源文件又多又小，走 HTTP/2 多路复用可以省掉大量 TLS 握手
-        c.DefaultRequestVersion = New Version(2, 0)
-        c.DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrLower
+        c.DefaultRequestVersion = New Version(1, 1)
         Return c
     End Function
 
@@ -124,7 +154,7 @@ Public Module ModDownload
         Dim lastEx As Exception = Nothing
         For i = 0 To retry
             Try
-                Using cts As New CancellationTokenSource(TimeSpan.FromMinutes(15))
+                Using cts As New CancellationTokenSource(TimeSpan.FromSeconds(40))
                     Using req As New HttpRequestMessage(HttpMethod.Get, url)
                         req.Headers.UserAgent.ParseAdd("TYWLauncher/1.0 (Linux)")
                         Using resp = Client.Send(req, HttpCompletionOption.ResponseHeadersRead, cts.Token)
@@ -274,6 +304,10 @@ Public Module ModDownload
     ''' 安装一个原版版本。report(progress 0~1, 当前动作)，cancel 返回 True 时中止。
     ''' </summary>
     Public Sub Install(id As String, versionUrl As String, report As Action(Of Double, String), cancel As Func(Of Boolean))
+        InstallAsync(id, versionUrl, report, cancel).GetAwaiter().GetResult()
+    End Sub
+
+    Private Async Function InstallAsync(id As String, versionUrl As String, report As Action(Of Double, String), cancel As Func(Of Boolean)) As Task
         ModPaths.EnsureAll()
         ' 同步阻塞式下载会占满线程池，默认线程增长太慢会让并发形同虚设
         Dim minWorker As Integer, minIo As Integer
@@ -384,7 +418,7 @@ Public Module ModDownload
                 End Try
             End If
 
-            ' --- 并行下载 ---
+            ' --- 并行下载（异步，IO 不占线程，并发才真正生效） ---
             Dim all As New List(Of Tuple(Of String, String))
             all.AddRange(libTasks)
             all.AddRange(indexTasks)
@@ -394,26 +428,31 @@ Public Module ModDownload
             Dim stageName = If(indexTasks.Count > libTasks.Count, "下载资源文件", "下载依赖库")
             report(0.14, stageName & "（共 " & todo.Count & " 个文件）")
 
-            Dim po As New ParallelOptions With {.MaxDegreeOfParallelism = 48}
             Dim failCount = 0
-            Try
-                Parallel.ForEach(todo, po,
-                    Sub(t)
-                        If cancel() Then Return
-                        Try
-                            DownloadFile(t.Item1, t.Item2, 1)
-                        Catch ex As Exception
-                            Interlocked.Increment(failCount)
-                            ModLog.Err(ex, "下载依赖失败：" & t.Item1)
-                        End Try
-                        Dim n = Interlocked.Increment(done)
-                        If n Mod 4 = 0 OrElse n = total Then
-                            report(0.14 + 0.84 * n / total, stageName & $"（{n}/{total}）")
-                        End If
-                    End Sub)
-            Catch ex As OperationCanceledException
-                Throw
-            End Try
+            Using sem As New SemaphoreSlim(16)
+                Dim jobs As New List(Of Task)
+                For Each t In todo
+                    Dim item = t
+                    Await sem.WaitAsync()
+                    jobs.Add(Task.Run(Async Function()
+                                          Try
+                                              If Not cancel() Then
+                                                  Await DownloadFileAsync(item.Item1, item.Item2, 1)
+                                              End If
+                                          Catch ex As Exception
+                                              Interlocked.Increment(failCount)
+                                              ModLog.Err(ex, "下载依赖失败：" & item.Item1)
+                                          Finally
+                                              sem.Release()
+                                              Dim n = Interlocked.Increment(done)
+                                              If n Mod 8 = 0 OrElse n = total Then
+                                                  report(0.14 + 0.84 * n / total, stageName & $"（{n}/{total}）")
+                                              End If
+                                          End Try
+                                      End Function))
+                Next
+                Await Task.WhenAll(jobs)
+            End Using
 
             ' 少量文件失败可能不影响启动（有些库只在其它平台需要），大面积失败则必须报错
             If failCount > 0 Then
@@ -433,7 +472,43 @@ Public Module ModDownload
 
         report(1.0, "安装完成")
         ModVersion.Invalidate()
-    End Sub
+    End Function
+
+    ''' <summary>异步下载单个文件（先写 .tmp 再改名，避免中断留下坏文件）。</summary>
+    Public Async Function DownloadFileAsync(url As String, dest As String, Optional retry As Integer = 2) As Task
+        Dim dir = Path.GetDirectoryName(dest)
+        If Not String.IsNullOrEmpty(dir) AndAlso Not Directory.Exists(dir) Then Directory.CreateDirectory(dir)
+        Dim tmp = dest & ".tmp"
+        Dim lastEx As Exception = Nothing
+        For i = 0 To retry
+            Try
+                Using cts As New CancellationTokenSource(TimeSpan.FromSeconds(40))
+                    Using req As New HttpRequestMessage(HttpMethod.Get, url)
+                        req.Headers.UserAgent.ParseAdd("TYWLauncher/1.0 (Linux)")
+                        Using resp = Await Client.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, cts.Token)
+                            resp.EnsureSuccessStatusCode()
+                            Using src = Await resp.Content.ReadAsStreamAsync(cts.Token)
+                                Using dst As New FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None, 81920, True)
+                                    Await src.CopyToAsync(dst, 81920, cts.Token)
+                                End Using
+                            End Using
+                        End Using
+                    End Using
+                End Using
+                If File.Exists(dest) Then File.Delete(dest)
+                File.Move(tmp, dest)
+                Return
+            Catch ex As Exception
+                lastEx = ex
+                Try
+                    If File.Exists(tmp) Then File.Delete(tmp)
+                Catch
+                End Try
+                If i < retry Then Thread.Sleep(400 * (i + 1))
+            End Try
+        Next
+        Throw New Exception("下载失败：" & url & " —— " & lastEx?.Message, lastEx)
+    End Function
 
     ''' <summary>老版本（1.6 及以前）需要把 objects 复制到 virtual/legacy。</summary>
     Private Sub CopyLegacyAssetsIfNeeded()

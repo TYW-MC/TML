@@ -84,9 +84,8 @@ Public Module ModLaunch
         report?.Invoke("整理类路径", 0.22)
         Dim cpParts As New List(Of String)
         For Each libEl In merged.Libraries
-            If Not ModDownload.LibAllowed(libEl) Then Continue For
-            Dim nativeMarker = NativeKeyOf(libEl)
-            If nativeMarker <> "" Then Continue For   ' natives 不进 classpath
+            If Not RuleMatches(libEl) Then Continue For
+            ' 只把 artifact 放进 classpath；带 natives 的库同样需要它的主 jar
             Dim rel = LibRelativePath(libEl)
             If rel = "" Then Continue For
             Dim full = Path.Combine(ModPaths.McFolder, "libraries", rel.Replace("/"c, Path.DirectorySeparatorChar))
@@ -319,7 +318,7 @@ Public Module ModLaunch
         End Try
 
         For Each libEl In merged.Libraries
-            If Not ModDownload.LibAllowed(libEl) Then Continue For
+            If Not RuleMatches(libEl) Then Continue For
             Dim jar = NativeJarPath(libEl)
             If String.IsNullOrEmpty(jar) OrElse Not File.Exists(jar) Then Continue For
             Try
@@ -364,16 +363,29 @@ Public Module ModLaunch
         Dim hasLibraryPath = False
 
         If merged.JvmArgs.Count > 0 Then
-            For Each a In ExpandArgs(merged.JvmArgs, merged)
-                Dim s = ApplyTokens(a, tokens)
+            Dim expanded = ExpandArgs(merged.JvmArgs, merged)
+            Dim i = 0
+            While i < expanded.Count
+                Dim s = ApplyTokens(expanded(i), tokens)
                 If s.StartsWith("-Djava.library.path=") Then hasLibraryPath = True
+
                 If s = "-cp" OrElse s = "-classpath" Then
                     list.Add(s)
+                    ' 紧跟其后的通常是 ${classpath} 占位参数，替换后要一起跳掉，
+                    ' 否则它会变成"主类名"传给 Java
+                    If i + 1 < expanded.Count AndAlso expanded(i + 1).Contains("${classpath}") Then
+                        list.Add(classpath)
+                        i += 2
+                        Continue While
+                    End If
                     list.Add(classpath)
-                    Continue For
+                    i += 1
+                    Continue While
                 End If
+
                 list.Add(s)
-            Next
+                i += 1
+            End While
         End If
 
         If Not hasLibraryPath Then
@@ -413,7 +425,9 @@ Public Module ModLaunch
             If el.ValueKind = JsonValueKind.String Then
                 list.Add(el.GetString())
             ElseIf el.ValueKind = JsonValueKind.Object Then
-                If Not ModDownload.LibAllowed(el) Then Continue For
+                ' 这里的 rules 不只看系统，还要看 features：
+                ' 例如 --demo 只在 is_demo_user 为真时才有，误加会让游戏变成试玩模式
+                If Not RuleMatches(el) Then Continue For
                 Dim val As JsonElement
                 If el.TryGetProperty("value", val) Then
                     If val.ValueKind = JsonValueKind.String Then
@@ -427,6 +441,41 @@ Public Module ModLaunch
             End If
         Next
         Return list
+    End Function
+
+    ''' <summary>判断带 rules 的参数/库在当前平台和当前启动方式下是否生效。</summary>
+    Public Function RuleMatches(el As JsonElement) As Boolean
+        Dim rules As JsonElement
+        If Not el.TryGetProperty("rules", rules) OrElse rules.ValueKind <> JsonValueKind.Array Then Return True
+        Dim allowed = False
+        For Each rule In rules.EnumerateArray()
+            If Not SingleRuleMatches(rule) Then Continue For
+            Dim action = GetStr(rule, "action")
+            allowed = (action = "allow")
+        Next
+        Return allowed
+    End Function
+
+    Private Function SingleRuleMatches(rule As JsonElement) As Boolean
+        Dim osEl As JsonElement
+        If rule.TryGetProperty("os", osEl) Then
+            Dim name = GetStr(osEl, "name")
+            If name <> "" AndAlso name <> "linux" Then Return False
+            Dim arch = GetStr(osEl, "arch")
+            If arch = "x86" Then Return False
+            If arch = "arm64" Then Return False
+        End If
+
+        ' features：我们不是试玩用户、不用自定义分辨率、不用快速进入，
+        ' 所以任何要求 feature 为真的规则都不匹配
+        Dim feats As JsonElement
+        If rule.TryGetProperty("features", feats) AndAlso feats.ValueKind = JsonValueKind.Object Then
+            For Each f In feats.EnumerateObject()
+                If f.Value.ValueKind = JsonValueKind.True Then Return False
+            Next
+        End If
+
+        Return True
     End Function
 
     Private Function TokenTable(merged As MergedVersion, opt As LaunchOptions, nativesDir As String, classpath As String, gameDir As String) As Dictionary(Of String, String)
@@ -449,6 +498,15 @@ Public Module ModLaunch
         d("${launcher_name}") = "TYWLauncher"
         d("${launcher_version}") = "1.0"
         d("${library_directory}") = Path.Combine(ModPaths.McFolder, "libraries")
+        ' 1.20+ 新增的占位符：即使不用也必须替换，否则参数会错位
+        d("${clientid}") = ""
+        d("${auth_xuid}") = ""
+        d("${resolution_width}") = "854"
+        d("${resolution_height}") = "480"
+        d("${quickPlayPath}") = ""
+        d("${quickPlaySingleplayer}") = ""
+        d("${quickPlayMultiplayer}") = ""
+        d("${quickPlayRealms}") = ""
         Return d
     End Function
 
